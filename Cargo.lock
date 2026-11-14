@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "winter-app"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "objc2",
  "objc2-app-kit",
@@ -185,8 +185,8 @@ dependencies = [
 
 [[package]]
 name = "winter-core"
-version = "0.9.1"
+version = "0.9.2"
 
 [[package]]
 name = "winter-physics"
-version = "0.9.1"
+version = "0.9.2"
