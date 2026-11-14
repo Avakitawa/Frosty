@@ -9,14 +9,14 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black.svg" alt="macOS 13 or newer">
   <img src="https://img.shields.io/badge/Rust-1.82%2B-orange.svg" alt="Rust 1.82 or newer">
-  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.1"><img src="https://img.shields.io/badge/version-0.9.1-blueviolet.svg" alt="Frosty 0.9.1"></a>
+  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.2"><img src="https://img.shields.io/badge/version-0.9.2-blueviolet.svg" alt="Frosty 0.9.2"></a>
   <a href="https://ko-fi.com/avakitawa"><img src="https://img.shields.io/badge/Ko--fi-support-ff5e5b.svg" alt="Support on Ko-fi"></a>
   <a href="https://boosty.to/avakitawa"><img src="https://img.shields.io/badge/Boosty-support-orange.svg" alt="Support on Boosty"></a>
 </p>
 
 <p align="center">
   <a href="README.ru.md">Русский</a> ·
-  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.1">Download</a> ·
+  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.2">Download</a> ·
   <a href="https://ko-fi.com/avakitawa">Ko-fi</a> ·
   <a href="https://boosty.to/avakitawa">Boosty</a> ·
   <a href="https://github.com/Avakitawa/Frosty/issues">Report an issue</a>
@@ -37,8 +37,8 @@ Created by **[Avakitawa](https://github.com/Avakitawa)**.
 
 ## Download
 
-[Download Frosty 0.9.1 — DMG](https://github.com/Avakitawa/Frosty/releases/download/v0.9.1/Frosty-0.9.1.dmg) ·
-[SHA-256](https://github.com/Avakitawa/Frosty/releases/download/v0.9.1/Frosty-0.9.1-SHA256SUMS.txt)
+[Download Frosty 0.9.2 — DMG](https://github.com/Avakitawa/Frosty/releases/download/v0.9.2/Frosty-0.9.2.dmg) ·
+[SHA-256](https://github.com/Avakitawa/Frosty/releases/download/v0.9.2/Frosty-0.9.2-SHA256SUMS.txt)
 
 Open the image, drag **Frosty.app** to **Applications**, and launch it from
 there. The DMG is universal (Apple Silicon + Intel) and requires macOS 13 or
