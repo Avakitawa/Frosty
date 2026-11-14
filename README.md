@@ -147,6 +147,7 @@ carrot nose and buttons.
 | Dock | Snow along the Dock's top edge and beside bottom, left and right Docks |
 | Launchpad | Snow accumulates on supported Launchpad edges |
 | Tools | Mitten for sculpting and snowballs, shovel for removing snow |
+| First launch | A short guide to the menu-bar icon, settings and the Option snowball gesture |
 | Settings | Compact, no-scroll panel; physics controls live under **Дополнительно** |
 | Appearance | Native dark panel in the `#091540`, `#3D518C`, `#1B2CC1`, `#7692FF` and `#ABD2FA` palette |
 

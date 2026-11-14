@@ -7,15 +7,16 @@ use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, sel, AllocAnyThread, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSAutoresizingMaskOptions,
-    NSBezierPath, NSButton, NSButtonType, NSCellImagePosition, NSColor, NSControlStateValueOff,
-    NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSFocusRingType, NSFont, NSGradient,
-    NSImage, NSImageScaling, NSImageSymbolConfiguration, NSImageView, NSPopover, NSPopoverBehavior,
-    NSScreen, NSSlider, NSStatusBar, NSStatusBarButton, NSStatusItem, NSTextAlignment, NSTextField,
-    NSView, NSViewController, NSWorkspace,
+    NSBackingStoreType, NSBezierPath, NSButton, NSButtonType, NSCellImagePosition, NSColor,
+    NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSFocusRingType,
+    NSFont, NSGradient, NSImage, NSImageScaling, NSImageSymbolConfiguration, NSImageView,
+    NSPopover, NSPopoverBehavior, NSScreen, NSSlider, NSStatusBar, NSStatusBarButton, NSStatusItem,
+    NSStatusWindowLevel, NSTextAlignment, NSTextField, NSView, NSViewController, NSWindow,
+    NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSData, NSLocale, NSNotification, NSObject,
-    NSObjectProtocol, NSPoint, NSRect, NSRectEdge, NSSize, NSString, NSURL,
+    NSObjectProtocol, NSPoint, NSRect, NSRectEdge, NSSize, NSString, NSUserDefaults, NSURL,
 };
 use objc2_metal_kit::{MTKView, MTKViewDelegate};
 use winter_core::SnowfallState;
@@ -180,6 +181,7 @@ struct AppDelegateIvars {
     about_section: RefCell<Option<Retained<FlippedSectionView>>>,
     expand_button: RefCell<Option<Retained<NSButton>>>,
     settings_content: RefCell<Option<Retained<PanelBackgroundView>>>,
+    onboarding_window: RefCell<Option<Retained<NSWindow>>>,
 }
 
 define_class!(
@@ -245,6 +247,9 @@ define_class!(
                 "Frosty started; {} display overlay(s) created with up to 120 FPS",
                 self.ivars().windows.borrow().len()
             );
+            if !onboarding_seen() {
+                self.show_onboarding(mtm);
+            }
         }
 
         #[unsafe(method(applicationDidChangeScreenParameters:))]
@@ -393,6 +398,13 @@ define_class!(
                     sender,
                     NSRectEdge::MinY,
                 );
+            }
+        }
+
+        #[unsafe(method(dismissOnboarding:))]
+        fn dismiss_onboarding(&self, _sender: &NSButton) {
+            if let Some(window) = self.ivars().onboarding_window.borrow_mut().take() {
+                window.close();
             }
         }
 
@@ -570,6 +582,156 @@ impl AppDelegate {
         this.ivars().language.set(detect_language());
         this.ivars().cursor_tool.set(30);
         this
+    }
+
+    fn show_onboarding(&self, mtm: MainThreadMarker) {
+        let language = self.ivars().language.get();
+        mark_onboarding_seen();
+
+        let size = NSSize::new(440.0, 370.0);
+        let content = PanelBackgroundView::new(mtm, NSRect::new(NSPoint::new(0.0, 0.0), size));
+
+        let icon = NSImageView::initWithFrame(
+            NSImageView::alloc(mtm),
+            panel_frame(PANEL_PADDING, 16.0, 44.0, 44.0),
+        );
+        icon.setImage(app_icon_image().as_deref());
+        icon.setImageScaling(NSImageScaling::ScaleProportionallyDown);
+        content.addSubview(&icon);
+
+        let title = NSTextField::labelWithString(
+            &NSString::from_str(tr(
+                language,
+                "Добро пожаловать в Frosty",
+                "Welcome to Frosty",
+            )),
+            mtm,
+        );
+        title.setFrame(panel_frame(76.0, 13.0, 340.0, 22.0));
+        style_label(&title, color_text(1.0));
+        title.setFont(Some(&NSFont::boldSystemFontOfSize(17.0)));
+        content.addSubview(&title);
+
+        let subtitle = NSTextField::labelWithString(
+            &NSString::from_str(tr(
+                language,
+                "Три короткие подсказки для начала",
+                "Three quick tips to get started",
+            )),
+            mtm,
+        );
+        subtitle.setFrame(panel_frame(76.0, 37.0, 340.0, 16.0));
+        style_label(&subtitle, color_accent(0.85));
+        subtitle.setFont(Some(&NSFont::systemFontOfSize(10.5)));
+        content.addSubview(&subtitle);
+
+        let divider = NSView::initWithFrame(
+            NSView::alloc(mtm),
+            panel_frame(PANEL_PADDING, 70.0, PANEL_CONTENT_WIDTH, 1.0),
+        );
+        style_layer(&divider, color_surface(0.55), 0.5, 0.0, color_clear());
+        content.addSubview(&divider);
+
+        let steps = [
+            (
+                tr(language, "Иконка в строке меню", "The menu bar icon"),
+                tr(
+                    language,
+                    "Frosty живёт рядом с часами. Снежинка — это приложение.",
+                    "Frosty lives next to the clock. The snowflake is the app.",
+                ),
+                "snowflake",
+            ),
+            (
+                tr(language, "Открыть настройки", "Open settings"),
+                tr(
+                    language,
+                    "Нажми на снежинку — откроется панель с погодой и инструментами.",
+                    "Click the snowflake to open weather and tool settings.",
+                ),
+                "gearshape.fill",
+            ),
+            (
+                tr(language, "Слепить снежок", "Pack a snowball"),
+                tr(
+                    language,
+                    "Зажми Option и проведи варежкой по сугробу.",
+                    "Hold Option and sweep the mitten across a drift.",
+                ),
+                "hand.raised.fill",
+            ),
+        ];
+        for (index, (heading, body, symbol)) in steps.into_iter().enumerate() {
+            let top = 82.0 + index as f64 * 62.0;
+            let card = NSView::initWithFrame(
+                NSView::alloc(mtm),
+                panel_frame(PANEL_PADDING, top, PANEL_CONTENT_WIDTH, 56.0),
+            );
+            style_layer(&card, color_surface(0.30), 12.0, 1.0, color_accent(0.18));
+            content.addSubview(&card);
+
+            let step_icon = NSImageView::initWithFrame(
+                NSImageView::alloc(mtm),
+                top_frame(56.0, 14.0, 16.0, 24.0, 24.0),
+            );
+            step_icon.setImage(symbol_image(symbol, 18.0, SymbolWeight::Medium).as_deref());
+            step_icon.setImageScaling(NSImageScaling::ScaleProportionallyDown);
+            step_icon.setContentTintColor(Some(&color_accent(0.95)));
+            card.addSubview(&step_icon);
+
+            let heading_label = NSTextField::labelWithString(&NSString::from_str(heading), mtm);
+            heading_label.setFrame(top_frame(56.0, 52.0, 8.0, 330.0, 16.0));
+            style_label(&heading_label, color_text(1.0));
+            heading_label.setFont(Some(&NSFont::boldSystemFontOfSize(11.5)));
+            card.addSubview(&heading_label);
+
+            let body_label = NSTextField::labelWithString(&NSString::from_str(body), mtm);
+            body_label.setFrame(top_frame(56.0, 52.0, 25.0, 330.0, 15.0));
+            style_label(&body_label, color_accent(0.85));
+            body_label.setFont(Some(&NSFont::systemFontOfSize(9.5)));
+            card.addSubview(&body_label);
+        }
+
+        let button = NSButton::initWithFrame(
+            NSButton::alloc(mtm),
+            panel_frame(PANEL_PADDING, 292.0, PANEL_CONTENT_WIDTH, 36.0),
+        );
+        button.setBordered(false);
+        button.setButtonType(NSButtonType::MomentaryPushIn);
+        button.setTitle(&NSString::from_str(tr(language, "Понятно", "Got it")));
+        button.setFont(Some(&NSFont::boldSystemFontOfSize(12.0)));
+        button.setContentTintColor(Some(&color_text(1.0)));
+        button.setFocusRingType(NSFocusRingType::None);
+        style_layer(&button, color_primary(0.96), 10.0, 1.0, color_accent(0.55));
+        unsafe {
+            button.setTarget(Some(self));
+            button.setAction(Some(sel!(dismissOnboarding:)));
+        }
+        content.addSubview(&button);
+
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+                NSWindow::alloc(mtm),
+                NSRect::new(NSPoint::new(0.0, 0.0), size),
+                NSWindowStyleMask::Titled | NSWindowStyleMask::Closable,
+                NSBackingStoreType::Buffered,
+                false,
+            )
+        };
+        unsafe { window.setReleasedWhenClosed(false) };
+        window.setTitle(&NSString::from_str("Frosty"));
+        window.setBackgroundColor(Some(&color_dark(1.0)));
+        window.setContentSize(size);
+        window.setContentView(Some(&content));
+        window.setLevel(NSStatusWindowLevel + 1);
+        window.center();
+        let dark_appearance: Option<Retained<AnyObject>> = unsafe {
+            msg_send![objc2::class!(NSAppearance), appearanceNamed: ns_string!("NSAppearanceNameDarkAqua")]
+        };
+        let _: () = unsafe { msg_send![&*window, setAppearance: dark_appearance.as_deref()] };
+        self.ivars().onboarding_window.replace(Some(window.clone()));
+        NSApplication::sharedApplication(mtm).activate();
+        window.makeKeyAndOrderFront(None);
     }
 
     fn build_settings_popover(&self, mtm: MainThreadMarker) {
@@ -2343,6 +2505,17 @@ fn slider_tooltip(tag: isize, language: Language) -> &'static str {
         ),
         _ => "",
     }
+}
+
+const ONBOARDING_SEEN_KEY: &str = "FrostyOnboardingSeenV1";
+
+fn onboarding_seen() -> bool {
+    NSUserDefaults::standardUserDefaults().boolForKey(&NSString::from_str(ONBOARDING_SEEN_KEY))
+}
+
+fn mark_onboarding_seen() {
+    NSUserDefaults::standardUserDefaults()
+        .setBool_forKey(true, &NSString::from_str(ONBOARDING_SEEN_KEY));
 }
 
 const APP_ICON_PNG: &[u8] = include_bytes!("../assets/app-icon.png");
