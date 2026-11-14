@@ -8,11 +8,12 @@ use objc2::{define_class, msg_send, sel, AllocAnyThread, DefinedClass, MainThrea
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSAutoresizingMaskOptions,
     NSBackingStoreType, NSBezierPath, NSButton, NSButtonType, NSCellImagePosition, NSColor,
-    NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType,
-    NSFocusRingType, NSFont, NSGradient, NSImage, NSImageScaling, NSImageSymbolConfiguration,
-    NSImageView, NSMenu, NSMenuItem, NSPopover, NSPopoverBehavior, NSScreen, NSSlider, NSStatusBar,
-    NSStatusBarButton, NSStatusItem, NSStatusWindowLevel, NSTextAlignment, NSTextField, NSView,
-    NSViewController, NSWindow, NSWindowStyleMask, NSWorkspace,
+    NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventMask, NSEventModifierFlags,
+    NSEventType, NSFocusRingType, NSFont, NSGradient, NSImage, NSImageScaling,
+    NSImageSymbolConfiguration, NSImageView, NSMenu, NSMenuItem, NSPopover, NSPopoverBehavior,
+    NSScreen, NSSlider, NSStatusBar, NSStatusBarButton, NSStatusItem, NSStatusWindowLevel,
+    NSTextAlignment, NSTextField, NSView, NSViewController, NSWindow, NSWindowStyleMask,
+    NSWorkspace,
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSData, NSLocale, NSNotification, NSObject,
@@ -242,6 +243,11 @@ define_class!(
                 button.setTarget(Some(self));
                 button.setAction(Some(sel!(statusItemClicked:)));
             }
+            let _ = button.sendActionOn(
+                NSEventMask::LeftMouseUp
+                    | NSEventMask::RightMouseUp
+                    | NSEventMask::RightMouseDown,
+            );
             self.ivars().status_item.set(status_item).unwrap();
             self.refresh_overlays();
             eprintln!(
@@ -919,11 +925,7 @@ impl AppDelegate {
             false,
         );
 
-        menu.popUpMenuPositioningItem_atLocation_inView(
-            None,
-            NSPoint::new(0.0, button.bounds().size.height),
-            Some(button),
-        );
+        menu.popUpMenuPositioningItem_atLocation_inView(None, NSPoint::new(0.0, 0.0), Some(button));
     }
 
     fn build_settings_popover(&self, mtm: MainThreadMarker) {
