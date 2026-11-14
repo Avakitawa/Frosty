@@ -49,6 +49,19 @@ notarized. On another Mac, Gatekeeper may ask for confirmation on first launch;
 use **Open** from the context menu or **System Settings → Privacy & Security →
 Open Anyway**.
 
+## Screenshots
+
+Russian UI shown; the app selects Russian or English automatically from the
+macOS language.
+
+| Settings | Advanced physics |
+| :---: | :---: |
+| [![Frosty settings](docs/screenshots/01.png)](docs/screenshots/01.png) | [![Frosty physics settings](docs/screenshots/02.png)](docs/screenshots/02.png) |
+| **Snow on a window** | **Window drift** |
+| [![Snow on a window](docs/screenshots/03.png)](docs/screenshots/03.png) | [![Window drift](docs/screenshots/04.png)](docs/screenshots/04.png) |
+| **Blizzard** | **Dock and window** |
+| [![Blizzard](docs/screenshots/05.png)](docs/screenshots/05.png) | [![Dock and window](docs/screenshots/06.png)](docs/screenshots/06.png) |
+
 ## Requirements
 
 - macOS 13.0 or newer

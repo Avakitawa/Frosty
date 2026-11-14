@@ -48,6 +48,19 @@ WebView и без Electron. Интерфейс следует языку сис�
 контекстном меню или **Системные настройки → Конфиденциальность и безопасность →
 Всё равно открыть**.
 
+## Скриншоты
+
+Показан русский интерфейс; приложение автоматически выбирает русский или
+английский язык по языку macOS.
+
+| Настройки | Физика |
+| :---: | :---: |
+| [![Настройки Frosty](docs/screenshots/01.png)](docs/screenshots/01.png) | [![Физика Frosty](docs/screenshots/02.png)](docs/screenshots/02.png) |
+| **Снег на окне** | **Сугроб на окне** |
+| [![Снег на окне](docs/screenshots/03.png)](docs/screenshots/03.png) | [![Сугроб на окне](docs/screenshots/04.png)](docs/screenshots/04.png) |
+| **Метель** | **Dock и окно** |
+| [![Метель](docs/screenshots/05.png)](docs/screenshots/05.png) | [![Dock и окно](docs/screenshots/06.png)](docs/screenshots/06.png) |
+
 ## Требования
 
 - macOS 13.0 или новее
