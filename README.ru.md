@@ -9,14 +9,14 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="Лицензия MIT"></a>
   <img src="https://img.shields.io/badge/macOS-13%2B-black.svg" alt="macOS 13 или новее">
   <img src="https://img.shields.io/badge/Rust-1.82%2B-orange.svg" alt="Rust 1.82 или новее">
-  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.0"><img src="https://img.shields.io/badge/version-0.9.0-blueviolet.svg" alt="Frosty 0.9.0"></a>
+  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.1"><img src="https://img.shields.io/badge/version-0.9.1-blueviolet.svg" alt="Frosty 0.9.1"></a>
   <a href="https://ko-fi.com/avakitawa"><img src="https://img.shields.io/badge/Ko--fi-поддержать-ff5e5b.svg" alt="Поддержать на Ko-fi"></a>
   <a href="https://boosty.to/avakitawa"><img src="https://img.shields.io/badge/Boosty-поддержать-orange.svg" alt="Поддержать на Boosty"></a>
 </p>
 
 <p align="center">
   <a href="README.md">English</a> ·
-  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.0">Скачать</a> ·
+  <a href="https://github.com/Avakitawa/Frosty/releases/tag/v0.9.1">Скачать</a> ·
   <a href="https://ko-fi.com/avakitawa">Ko-fi</a> ·
   <a href="https://boosty.to/avakitawa">Boosty</a> ·
   <a href="https://github.com/Avakitawa/Frosty/issues">Сообщить о проблеме</a>
@@ -29,15 +29,16 @@ Frosty — нативное приложение со снегопадом дл�
 сугробы, снежки и их столкновения.
 
 Приложение собрано напрямую на AppKit и MetalKit через `objc2`: без Swift, без
-WebView и без Electron. Снег считается локально — Frosty не собирает аналитику
-и ничего не отправляет в сеть.
+WebView и без Electron. Интерфейс следует языку системы: русский для `ru-*`,
+английский для всех остальных. Снег считается локально — Frosty не собирает
+аналитику и ничего не отправляет в сеть.
 
 Автор — **[Avakitawa](https://github.com/Avakitawa)**.
 
 ## Скачать
 
-[Frosty 0.9.0 — DMG](https://github.com/Avakitawa/Frosty/releases/download/v0.9.0/Frosty-0.9.0.dmg) ·
-[SHA-256](https://github.com/Avakitawa/Frosty/releases/download/v0.9.0/Frosty-0.9.0-SHA256SUMS.txt)
+[Frosty 0.9.1 — DMG](https://github.com/Avakitawa/Frosty/releases/download/v0.9.1/Frosty-0.9.1.dmg) ·
+[SHA-256](https://github.com/Avakitawa/Frosty/releases/download/v0.9.1/Frosty-0.9.1-SHA256SUMS.txt)
 
 Открой образ, перетащи **Frosty.app** в **Applications** и запусти оттуда. DMG
 универсальный (Apple Silicon + Intel), требуется macOS 13 или новее.

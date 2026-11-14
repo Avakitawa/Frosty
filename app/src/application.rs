@@ -14,8 +14,8 @@ use objc2_app_kit::{
     NSView, NSViewController, NSWorkspace,
 };
 use objc2_foundation::{
-    ns_string, MainThreadMarker, NSArray, NSData, NSNotification, NSObject, NSObjectProtocol,
-    NSPoint, NSRect, NSRectEdge, NSSize, NSString, NSURL,
+    ns_string, MainThreadMarker, NSArray, NSData, NSLocale, NSNotification, NSObject,
+    NSObjectProtocol, NSPoint, NSRect, NSRectEdge, NSSize, NSString, NSURL,
 };
 use objc2_metal_kit::{MTKView, MTKViewDelegate};
 use winter_core::SnowfallState;
@@ -162,6 +162,7 @@ struct AppDelegateIvars {
     last_window_refresh: Cell<Option<Instant>>,
     settings: RefCell<AppSettings>,
     cursor_tool: Cell<u8>,
+    language: Cell<Language>,
     settings_popover: OnceCell<Retained<NSPopover>>,
     settings_controller: OnceCell<Retained<NSViewController>>,
     settings_buttons: RefCell<Vec<Retained<NSButton>>>,
@@ -229,7 +230,11 @@ define_class!(
             } else {
                 button.setTitle(ns_string!("❄"));
             }
-            button.setToolTip(Some(ns_string!("Frosty — Snowfall")));
+            button.setToolTip(Some(&NSString::from_str(tr(
+                self.ivars().language.get(),
+                "Frosty — снегопад",
+                "Frosty — Snowfall",
+            ))));
             unsafe {
                 button.setTarget(Some(self));
                 button.setAction(Some(sel!(openSettings:)));
@@ -445,7 +450,7 @@ define_class!(
             self.select_button_group(30, 31, tool);
             self.ivars().cursor_tool.set(tool as u8);
             if let Some(hint) = self.ivars().tool_hint.get() {
-                hint.setStringValue(&NSString::from_str(tool_hint_text(tool as u8)));
+                hint.setStringValue(&NSString::from_str(tool_hint_text(tool as u8, self.ivars().language.get())));
             }
         }
 
@@ -562,6 +567,7 @@ impl AppDelegate {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(AppDelegateIvars::default());
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+        this.ivars().language.set(detect_language());
         this.ivars().cursor_tool.set(30);
         this
     }
@@ -577,6 +583,7 @@ impl AppDelegate {
         let size = NSSize::new(PANEL_WIDTH, panel_height);
         let content = PanelBackgroundView::new(mtm, NSRect::new(NSPoint::new(0.0, 0.0), size));
         *self.ivars().settings_content.borrow_mut() = Some(content.clone());
+        let language = self.ivars().language.get();
 
         // Header: the real app icon, wordmark, master switch and quit.
         let logo = NSImageView::initWithFrame(
@@ -610,7 +617,7 @@ impl AppDelegate {
                 34.0,
             ),
             sel!(quitApp:),
-            "Выйти",
+            tr(language, "Выйти", "Quit"),
         );
 
         let header_divider = NSView::initWithFrame(
@@ -664,7 +671,11 @@ impl AppDelegate {
             NSControlStateValueOff
         });
         toggle.setTag(64);
-        toggle.setToolTip(Some(&NSString::from_str("Включить или выключить снегопад")));
+        toggle.setToolTip(Some(&NSString::from_str(tr(
+            language,
+            "Включить или выключить снегопад",
+            "Turn snowfall on or off",
+        ))));
         toggle.setFocusRingType(NSFocusRingType::None);
         unsafe {
             toggle.setTarget(Some(self));
@@ -685,13 +696,18 @@ impl AppDelegate {
         self.ivars().toggle_controls.borrow_mut().push(master);
 
         // Weather presets.
-        add_section_title(mtm, &content, "СНЕГОПАД", WEATHER_TITLE_TOP);
+        add_section_title(
+            mtm,
+            &content,
+            tr(language, "СНЕГОПАД", "SNOWFALL"),
+            WEATHER_TITLE_TOP,
+        );
         let weather_gap = 10.0;
         let weather_width = (PANEL_CONTENT_WIDTH - weather_gap * 2.0) / 3.0;
         for (index, (label, icon, tag)) in [
-            ("Лёгкий", "snowflake", 20),
-            ("Спокойный", "cloud.snow.fill", 21),
-            ("Метель", "wind", 22),
+            (tr(language, "Лёгкий", "Light"), "snowflake", 20),
+            (tr(language, "Спокойный", "Calm"), "cloud.snow.fill", 21),
+            (tr(language, "Метель", "Blizzard"), "wind", 22),
         ]
         .into_iter()
         .enumerate()
@@ -713,15 +729,20 @@ impl AppDelegate {
         }
 
         // Cursor tools.
-        add_section_title(mtm, &content, "ИНСТРУМЕНТ", TOOL_TITLE_TOP);
+        add_section_title(
+            mtm,
+            &content,
+            tr(language, "ИНСТРУМЕНТ", "TOOL"),
+            TOOL_TITLE_TOP,
+        );
         let tool_gap = 10.0;
         let tool_width = (PANEL_CONTENT_WIDTH - tool_gap) / 2.0;
         let current_tool = self.ivars().cursor_tool.get();
         self.add_tool_card(
             mtm,
             &content,
-            "Варежка",
-            "Игра со снегом",
+            tr(language, "Варежка", "Mitten"),
+            tr(language, "Игра со снегом", "Play with snow"),
             "hand.raised.fill",
             30,
             panel_frame(PANEL_PADDING, TOOL_TOP, tool_width, TOOL_HEIGHT),
@@ -730,8 +751,8 @@ impl AppDelegate {
         self.add_tool_card(
             mtm,
             &content,
-            "Лопата",
-            "Уборка снега",
+            tr(language, "Лопата", "Shovel"),
+            tr(language, "Уборка снега", "Clear snow"),
             "paintbrush.pointed.fill",
             31,
             panel_frame(
@@ -743,8 +764,10 @@ impl AppDelegate {
             current_tool == 31,
         );
 
-        let tool_hint =
-            NSTextField::labelWithString(&NSString::from_str(tool_hint_text(current_tool)), mtm);
+        let tool_hint = NSTextField::labelWithString(
+            &NSString::from_str(tool_hint_text(current_tool, language)),
+            mtm,
+        );
         tool_hint.setFrame(panel_frame(
             PANEL_PADDING,
             TOOL_HINT_TOP,
@@ -758,9 +781,9 @@ impl AppDelegate {
         self.ivars().tool_hint.set(tool_hint).unwrap();
 
         // Wind card: compact compass on the left, strength/gust sliders right.
-        add_section_title(mtm, &content, "ВЕТЕР", WIND_TITLE_TOP);
+        add_section_title(mtm, &content, tr(language, "ВЕТЕР", "WIND"), WIND_TITLE_TOP);
         let wind_status = NSTextField::labelWithString(
-            &NSString::from_str(wind_description(settings.wind_strength)),
+            &NSString::from_str(wind_description(settings.wind_strength, language)),
             mtm,
         );
         style_label(&wind_status, color_accent(1.0));
@@ -831,10 +854,10 @@ impl AppDelegate {
             content.addSubview(&guide);
         }
         for (label, x, top) in [
-            ("С", center_x - 8.0, center_top - 58.0),
-            ("Ю", center_x - 8.0, center_top + 46.0),
-            ("З", center_x - 60.0, center_top - 7.0),
-            ("В", center_x + 48.0, center_top - 7.0),
+            (tr(language, "С", "N"), center_x - 8.0, center_top - 58.0),
+            (tr(language, "Ю", "S"), center_x - 8.0, center_top + 46.0),
+            (tr(language, "З", "W"), center_x - 60.0, center_top - 7.0),
+            (tr(language, "В", "E"), center_x + 48.0, center_top - 7.0),
         ] {
             let cardinal = NSTextField::labelWithString(&NSString::from_str(label), mtm);
             cardinal.setFrame(panel_frame(x, top, 16.0, 14.0));
@@ -897,7 +920,7 @@ impl AppDelegate {
             mtm,
             &content,
             SettingSliderConfig {
-                title: "Сила ветра",
+                title: tr(language, "Сила ветра", "Wind strength"),
                 tag: 94,
                 value: settings.wind_strength as f64,
                 minimum: 0.0,
@@ -911,7 +934,7 @@ impl AppDelegate {
             mtm,
             &content,
             SettingSliderConfig {
-                title: "Порывы",
+                title: tr(language, "Порывы", "Gusts"),
                 tag: 95,
                 value: settings.wind_turbulence as f64,
                 minimum: 0.0,
@@ -928,8 +951,8 @@ impl AppDelegate {
             mtm,
             &content,
             62,
-            "Снег на окнах",
-            toggle_tooltip(62),
+            tr(language, "Снег на окнах", "Snow on windows"),
+            toggle_tooltip(62, language),
             panel_frame(PANEL_PADDING, TOGGLES_TOP, toggle_width, TOGGLE_HEIGHT),
             settings.window_snow,
         );
@@ -937,8 +960,8 @@ impl AppDelegate {
             mtm,
             &content,
             60,
-            "Частицы в окнах",
-            toggle_tooltip(60),
+            tr(language, "Частицы в окнах", "Particles in windows"),
+            toggle_tooltip(60, language),
             panel_frame(
                 PANEL_PADDING + toggle_width + 10.0,
                 TOGGLES_TOP,
@@ -955,15 +978,17 @@ impl AppDelegate {
         );
         clear.setBordered(false);
         clear.setButtonType(NSButtonType::MomentaryPushIn);
-        clear.setTitle(ns_string!("Очистить"));
+        clear.setTitle(&NSString::from_str(tr(language, "Очистить", "Clear")));
         clear.setImage(symbol_image("sparkles", 12.0, SymbolWeight::Medium).as_deref());
         clear.setImagePosition(NSCellImagePosition::ImageLeft);
         clear.setImageHugsTitle(true);
         clear.setContentTintColor(Some(&color_text(1.0)));
         clear.setFont(Some(&NSFont::systemFontOfSize(12.0)));
-        clear.setToolTip(Some(&NSString::from_str(
+        clear.setToolTip(Some(&NSString::from_str(tr(
+            language,
             "Убрать сугробы, шарики и снеговиков",
-        )));
+            "Remove drifts, snowballs and snowmen",
+        ))));
         clear.setTag(50);
         clear.setFocusRingType(NSFocusRingType::None);
         style_settings_button(&clear, false);
@@ -986,7 +1011,11 @@ impl AppDelegate {
         );
         expand.setBordered(false);
         expand.setButtonType(NSButtonType::MomentaryPushIn);
-        expand.setTitle(ns_string!("Дополнительно"));
+        expand.setTitle(&NSString::from_str(tr(
+            language,
+            "Дополнительно",
+            "Advanced",
+        )));
         expand.setImage(
             symbol_image(
                 if expanded {
@@ -1005,7 +1034,11 @@ impl AppDelegate {
         expand.setContentTintColor(Some(&color_accent(1.0)));
         expand.setFont(Some(&NSFont::systemFontOfSize(11.5)));
         expand.setTag(80);
-        expand.setToolTip(Some(&NSString::from_str("Показать или скрыть физику")));
+        expand.setToolTip(Some(&NSString::from_str(tr(
+            language,
+            "Показать или скрыть физику",
+            "Show or hide physics",
+        ))));
         expand.setFocusRingType(NSFocusRingType::None);
         style_layer(&expand, color_surface(0.20), 10.0, 1.0, color_accent(0.18));
         unsafe {
@@ -1033,7 +1066,7 @@ impl AppDelegate {
             mtm,
             &physics,
             SettingSliderConfig {
-                title: "Интенсивность",
+                title: tr(language, "Интенсивность", "Intensity"),
                 tag: 92,
                 value: settings.intensity as f64,
                 minimum: 0.2,
@@ -1047,7 +1080,7 @@ impl AppDelegate {
             mtm,
             &physics,
             SettingSliderConfig {
-                title: "Скорость падения",
+                title: tr(language, "Скорость падения", "Fall speed"),
                 tag: 93,
                 value: settings.falling_speed as f64,
                 minimum: 0.25,
@@ -1061,7 +1094,7 @@ impl AppDelegate {
             mtm,
             &physics,
             SettingSliderConfig {
-                title: "Скорость накопления",
+                title: tr(language, "Скорость накопления", "Accumulation speed"),
                 tag: 90,
                 value: settings.accumulation_speed as f64,
                 minimum: 0.0,
@@ -1075,7 +1108,7 @@ impl AppDelegate {
             mtm,
             &physics,
             SettingSliderConfig {
-                title: "Количество частиц",
+                title: tr(language, "Количество частиц", "Particles"),
                 tag: 91,
                 value: settings.particle_count as f64,
                 minimum: 500.0,
@@ -1090,8 +1123,8 @@ impl AppDelegate {
             mtm,
             &physics,
             63,
-            "Накопление",
-            toggle_tooltip(63),
+            tr(language, "Накопление", "Accumulation"),
+            toggle_tooltip(63, language),
             panel_frame(left_x, secondary_top, column_width, 40.0),
             settings.accumulation,
         );
@@ -1099,8 +1132,8 @@ impl AppDelegate {
             mtm,
             &physics,
             61,
-            "Порывы у окон",
-            toggle_tooltip(61),
+            tr(language, "Порывы у окон", "Window drafts"),
+            toggle_tooltip(61, language),
             panel_frame(right_x, secondary_top, column_width, 40.0),
             settings.window_wind_draft,
         );
@@ -1167,9 +1200,9 @@ impl AppDelegate {
             link.setTag(70 + index as isize);
             link.setFocusRingType(NSFocusRingType::None);
             link.setToolTip(Some(&NSString::from_str(if url.is_empty() {
-                "Ссылка доната будет добавлена"
+                tr(language, "Ссылка доната будет добавлена", "Donation link")
             } else {
-                "Поддержать проект"
+                tr(language, "Поддержать проект", "Support the project")
             })));
             unsafe {
                 link.setTarget(Some(self));
@@ -1406,7 +1439,10 @@ impl AppDelegate {
         } else {
             NSControlStateValueOff
         });
-        button.setToolTip(Some(&NSString::from_str(weather_tooltip(tag))));
+        button.setToolTip(Some(&NSString::from_str(weather_tooltip(
+            tag,
+            self.ivars().language.get(),
+        ))));
         button.setFocusRingType(NSFocusRingType::None);
         unsafe {
             button.setTarget(Some(self));
@@ -1475,7 +1511,10 @@ impl AppDelegate {
         } else {
             NSControlStateValueOff
         });
-        button.setToolTip(Some(&NSString::from_str(tool_tooltip(tag))));
+        button.setToolTip(Some(&NSString::from_str(tool_tooltip(
+            tag,
+            self.ivars().language.get(),
+        ))));
         button.setFocusRingType(NSFocusRingType::None);
         unsafe {
             button.setTarget(Some(self));
@@ -1529,7 +1568,10 @@ impl AppDelegate {
         slider.setContinuous(false);
         slider.setTrackFillColor(Some(&color_accent(1.0)));
         slider.setFocusRingType(NSFocusRingType::None);
-        slider.setToolTip(Some(&NSString::from_str(slider_tooltip(config.tag))));
+        slider.setToolTip(Some(&NSString::from_str(slider_tooltip(
+            config.tag,
+            self.ivars().language.get(),
+        ))));
         unsafe {
             slider.setTarget(Some(self));
             slider.setAction(Some(sel!(changeSnowSetting:)));
@@ -1964,6 +2006,7 @@ impl AppDelegate {
             let settings = *self.ivars().settings.borrow();
             label.setStringValue(&objc2_foundation::NSString::from_str(wind_description(
                 settings.wind_strength,
+                self.ivars().language.get(),
             )));
         }
     }
@@ -2159,19 +2202,72 @@ fn add_section_title(
     label
 }
 
-fn tool_hint_text(tool: u8) -> &'static str {
-    match tool {
-        30 => "Варежка: ⌥ + движение — скатать шарик · 3 шарика = снеговик",
-        _ => "Лопата убирает снег под курсором",
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Language {
+    Russian,
+    #[default]
+    English,
+}
+
+fn language_from_code(code: &str) -> Language {
+    if code.to_ascii_lowercase().starts_with("ru") {
+        Language::Russian
+    } else {
+        Language::English
     }
 }
 
-fn toggle_tooltip(tag: isize) -> &'static str {
+fn detect_language() -> Language {
+    NSLocale::preferredLanguages()
+        .firstObject()
+        .map(|language| language_from_code(&language.to_string()))
+        .unwrap_or_default()
+}
+
+fn tr(language: Language, russian: &'static str, english: &'static str) -> &'static str {
+    match language {
+        Language::Russian => russian,
+        Language::English => english,
+    }
+}
+
+fn tool_hint_text(tool: u8, language: Language) -> &'static str {
+    match tool {
+        30 => tr(
+            language,
+            "Варежка: ⌥ + движение — скатать шарик · 3 шарика = снеговик",
+            "Mitten: ⌥ + move — pack a snowball · 3 balls = snowman",
+        ),
+        _ => tr(
+            language,
+            "Лопата убирает снег под курсором",
+            "Shovel clears snow under the cursor",
+        ),
+    }
+}
+
+fn toggle_tooltip(tag: isize, language: Language) -> &'static str {
     match tag {
-        60 => "Снежинки могут залетать внутрь окон",
-        61 => "Редкие слабые порывы у краёв окон",
-        62 => "Снег скапливается на верхних кромках окон",
-        63 => "Новый снег скапливается на поверхностях",
+        60 => tr(
+            language,
+            "Снежинки могут залетать внутрь окон",
+            "Snowflakes can drift inside windows",
+        ),
+        61 => tr(
+            language,
+            "Редкие слабые порывы у краёв окон",
+            "Occasional weak drafts at window edges",
+        ),
+        62 => tr(
+            language,
+            "Снег скапливается на верхних кромках окон",
+            "Snow collects on window tops",
+        ),
+        63 => tr(
+            language,
+            "Новый снег скапливается на поверхностях",
+            "New snow builds up on surfaces",
+        ),
         _ => "",
     }
 }
@@ -2182,29 +2278,69 @@ enum SymbolWeight {
     Semibold,
 }
 
-fn weather_tooltip(tag: isize) -> &'static str {
+fn weather_tooltip(tag: isize, language: Language) -> &'static str {
     match tag {
-        20 => "Редкий спокойный снегопад",
-        21 => "Спокойный снегопад с лёгким ветром",
-        _ => "Быстрый снег и сильный ветер",
+        20 => tr(
+            language,
+            "Редкий спокойный снегопад",
+            "Light, calm snowfall",
+        ),
+        21 => tr(
+            language,
+            "Спокойный снегопад с лёгким ветром",
+            "Calm snowfall with a light breeze",
+        ),
+        _ => tr(
+            language,
+            "Быстрый снег и сильный ветер",
+            "Fast snow and strong wind",
+        ),
     }
 }
 
-fn tool_tooltip(tag: isize) -> &'static str {
+fn tool_tooltip(tag: isize, language: Language) -> &'static str {
     match tag {
-        30 => "Двигает сугробы; ⌥ + движение скатывает шарик",
-        _ => "Убирает снег под курсором",
+        30 => tr(
+            language,
+            "Двигает сугробы; ⌥ + движение скатывает шарик",
+            "Moves drifts; ⌥ + move packs a snowball",
+        ),
+        _ => tr(
+            language,
+            "Убирает снег под курсором",
+            "Clears snow under the cursor",
+        ),
     }
 }
 
-fn slider_tooltip(tag: isize) -> &'static str {
+fn slider_tooltip(tag: isize, language: Language) -> &'static str {
     match tag {
-        90 => "Как быстро растут сугробы",
-        91 => "Сколько снежинок участвует в симуляции",
-        92 => "Насколько густым выглядит снегопад",
-        93 => "Скорость падения снежинок",
-        94 => "Сила бокового ветра",
-        95 => "Насколько неспокойным выглядит ветер",
+        90 => tr(
+            language,
+            "Как быстро растут сугробы",
+            "How quickly drifts grow",
+        ),
+        91 => tr(
+            language,
+            "Сколько снежинок участвует в симуляции",
+            "How many snowflakes are simulated",
+        ),
+        92 => tr(
+            language,
+            "Насколько густым выглядит снегопад",
+            "How dense the snowfall looks",
+        ),
+        93 => tr(
+            language,
+            "Скорость падения снежинок",
+            "Snowflake fall speed",
+        ),
+        94 => tr(language, "Сила бокового ветра", "Sideways wind strength"),
+        95 => tr(
+            language,
+            "Насколько неспокойным выглядит ветер",
+            "How gusty the wind looks",
+        ),
         _ => "",
     }
 }
@@ -2995,12 +3131,12 @@ fn angle_distance(first: f32, second: f32) -> f32 {
     difference.min(TAU - difference)
 }
 
-fn wind_description(strength: f32) -> &'static str {
+fn wind_description(strength: f32, language: Language) -> &'static str {
     match strength {
-        value if value < 0.004 => "Штиль",
-        value if value < 0.03 => "Лёгкий ветер",
-        value if value < 0.06 => "Ветер",
-        _ => "Метель",
+        value if value < 0.004 => tr(language, "Штиль", "Calm"),
+        value if value < 0.03 => tr(language, "Лёгкий ветер", "Light wind"),
+        value if value < 0.06 => tr(language, "Ветер", "Wind"),
+        _ => tr(language, "Метель", "Blizzard"),
     }
 }
 
@@ -3094,16 +3230,17 @@ pub fn run() {
 mod tests {
     use super::{
         apply_weather_preset, direction_tag, dock_surfaces_for_display, is_fullscreen_window,
-        panel_frame, slider_label_value, toggle_tooltip, tool_hint_text, top_frame,
-        window_snow_edge_margin_points, DisplaySimulationSpace, ABOUT_HEIGHT, ABOUT_TOP_COLLAPSED,
-        ABOUT_TOP_EXPANDED, ADDITIONAL_HEIGHT, ADDITIONAL_TOP, CLEAR_HEIGHT, CLEAR_TOP,
-        COMPASS_CARD_HEIGHT, COMPASS_CARD_TOP, COMPASS_CENTER_X, COMPASS_RADIUS, COMPASS_STEP_X,
-        COMPASS_STEP_Y, HEADER_HEIGHT, HEADER_TOP, PANEL_HEIGHT_COLLAPSED, PANEL_HEIGHT_EXPANDED,
-        PANEL_PADDING, PANEL_WIDTH, PHYSICS_SECOND_ROW_TOP, PHYSICS_TOGGLE_TOP, PHYSICS_TOP,
-        SECTION_TITLE_HEIGHT, SLIDER_ROW_HEIGHT, TOGGLES_TOP, TOGGLE_HEIGHT, TOOL_HEIGHT,
-        TOOL_HINT_HEIGHT, TOOL_HINT_TOP, TOOL_TITLE_TOP, TOOL_TOP, WEATHER_HEIGHT,
-        WEATHER_TITLE_TOP, WEATHER_TOP, WIND_CARD_LEFT_WIDTH, WIND_SLIDER_FIRST_TOP,
-        WIND_SLIDER_SECOND_TOP, WIND_SLIDER_WIDTH, WIND_SLIDER_X, WIND_TITLE_TOP,
+        language_from_code, panel_frame, slider_label_value, toggle_tooltip, tool_hint_text,
+        top_frame, window_snow_edge_margin_points, DisplaySimulationSpace, Language, ABOUT_HEIGHT,
+        ABOUT_TOP_COLLAPSED, ABOUT_TOP_EXPANDED, ADDITIONAL_HEIGHT, ADDITIONAL_TOP, CLEAR_HEIGHT,
+        CLEAR_TOP, COMPASS_CARD_HEIGHT, COMPASS_CARD_TOP, COMPASS_CENTER_X, COMPASS_RADIUS,
+        COMPASS_STEP_X, COMPASS_STEP_Y, HEADER_HEIGHT, HEADER_TOP, PANEL_HEIGHT_COLLAPSED,
+        PANEL_HEIGHT_EXPANDED, PANEL_PADDING, PANEL_WIDTH, PHYSICS_SECOND_ROW_TOP,
+        PHYSICS_TOGGLE_TOP, PHYSICS_TOP, SECTION_TITLE_HEIGHT, SLIDER_ROW_HEIGHT, TOGGLES_TOP,
+        TOGGLE_HEIGHT, TOOL_HEIGHT, TOOL_HINT_HEIGHT, TOOL_HINT_TOP, TOOL_TITLE_TOP, TOOL_TOP,
+        WEATHER_HEIGHT, WEATHER_TITLE_TOP, WEATHER_TOP, WIND_CARD_LEFT_WIDTH,
+        WIND_SLIDER_FIRST_TOP, WIND_SLIDER_SECOND_TOP, WIND_SLIDER_WIDTH, WIND_SLIDER_X,
+        WIND_TITLE_TOP,
     };
     use crate::settings::AppSettings;
     use crate::windows::VisibleWindow;
@@ -3241,8 +3378,12 @@ mod tests {
     fn every_physical_switch_has_a_tooltip() {
         for tag in 60..=63 {
             assert!(
-                !toggle_tooltip(tag).is_empty(),
-                "switch {tag} has no tooltip"
+                !toggle_tooltip(tag, Language::Russian).is_empty(),
+                "switch {tag} has no Russian tooltip"
+            );
+            assert!(
+                !toggle_tooltip(tag, Language::English).is_empty(),
+                "switch {tag} has no English tooltip"
             );
         }
     }
@@ -3359,9 +3500,14 @@ mod tests {
     }
 
     #[test]
-    fn tool_hints_follow_the_current_state() {
-        assert!(tool_hint_text(30).starts_with("Варежка"));
-        assert!(tool_hint_text(31).starts_with("Лопата"));
+    fn tool_hints_and_weather_text_switch_language() {
+        assert!(tool_hint_text(30, Language::Russian).starts_with("Варежка"));
+        assert!(tool_hint_text(31, Language::Russian).starts_with("Лопата"));
+        assert!(tool_hint_text(30, Language::English).starts_with("Mitten"));
+        assert!(tool_hint_text(31, Language::English).starts_with("Shovel"));
+        assert_eq!(language_from_code("ru-RU"), Language::Russian);
+        assert_eq!(language_from_code("en-US"), Language::English);
+        assert_eq!(language_from_code("de-DE"), Language::English);
     }
 
     #[test]
