@@ -191,6 +191,7 @@ struct AppDelegateIvars {
     expand_button: RefCell<Option<Retained<NSButton>>>,
     settings_content: RefCell<Option<Retained<PanelBackgroundView>>>,
     onboarding_window: RefCell<Option<Retained<NSWindow>>>,
+    hint_window: RefCell<Option<Retained<NSWindow>>>,
 }
 
 define_class!(
@@ -317,6 +318,8 @@ define_class!(
                     simulation_space.x(mouse.x),
                     simulation_space.y_from_top(mouse.y),
                 ));
+            let mut show_roll_hint = false;
+            let mut show_limit_hint = false;
             let interactive = {
                 let mut renderers = self.ivars().renderers.borrow_mut();
                 if let Some(renderer) = renderers.get_mut(renderer_index) {
@@ -326,6 +329,18 @@ define_class!(
                         frame.size.width as f32,
                         frame.size.height as f32,
                     );
+
+                    if !roll_hint_seen()
+                        && self.ivars().cursor_tool.get() == 30
+                        && self.ivars().overlay_drag.get().is_none()
+                        && self.ivars().onboarding_window.borrow().is_none()
+                    {
+                        if let Some((x, y)) = position {
+                            if renderer.can_roll_snowball_at(x, y) {
+                                show_roll_hint = true;
+                            }
+                        }
+                    }
 
                     // Holding Option turns a mitten sweep into an explicit
                     // "roll one snowball" gesture. Plain sweeps only push snow.
@@ -354,6 +369,9 @@ define_class!(
                                     };
                                     if renderer.roll_snowball_at(x, y, direction) {
                                         self.ivars().rolled_with_option.set(true);
+                                    } else if renderer.snowball_limit_reached() {
+                                        self.ivars().rolled_with_option.set(true);
+                                        show_limit_hint = true;
                                     }
                                 }
                             }
@@ -397,6 +415,11 @@ define_class!(
                     false
                 }
             };
+            if show_roll_hint {
+                self.show_roll_hint();
+            } else if show_limit_hint {
+                self.show_too_many_snowballs_hint();
+            }
             self.set_overlay_interactive(renderer_index, interactive);
         }
 
@@ -413,6 +436,13 @@ define_class!(
         #[unsafe(method(openSettings:))]
         fn open_settings(&self, sender: &NSStatusBarButton) {
             self.show_settings_popover(sender);
+        }
+
+        #[unsafe(method(hideHint:))]
+        fn hide_hint(&self, _argument: &NSObject) {
+            if let Some(window) = self.ivars().hint_window.borrow_mut().take() {
+                window.close();
+            }
         }
 
         #[unsafe(method(statusItemClicked:))]
@@ -828,6 +858,104 @@ impl AppDelegate {
         self.ivars().onboarding_window.replace(Some(window.clone()));
         NSApplication::sharedApplication(mtm).activate();
         window.makeKeyAndOrderFront(None);
+    }
+
+    fn show_roll_hint(&self) {
+        if roll_hint_seen() {
+            return;
+        }
+        mark_roll_hint_seen();
+        let language = self.ivars().language.get();
+        self.show_transient_hint(tr(
+            language,
+            "Зажми Option и проведи варежкой по сугробу — получится снежок.",
+            "Hold Option and sweep the mitten across a drift to pack a snowball.",
+        ));
+    }
+
+    fn show_too_many_snowballs_hint(&self) {
+        let language = self.ivars().language.get();
+        self.show_transient_hint(tr(
+            language,
+            "Слишком много снежков — сначала убери или соедини лишние.",
+            "Too many snowballs — clear or combine some first.",
+        ));
+    }
+
+    fn show_transient_hint(&self, text: &str) {
+        let mtm = self.mtm();
+        if let Some(window) = self.ivars().hint_window.borrow_mut().take() {
+            window.close();
+        }
+        let width = 330.0;
+        let height = 46.0;
+        let mouse = NSEvent::mouseLocation();
+        let mut origin_x = mouse.x + 16.0;
+        let mut origin_y = mouse.y - height - 14.0;
+        let screens = NSScreen::screens(mtm);
+        for index in 0..screens.count() {
+            let screen = screens.objectAtIndex(index);
+            let frame = screen.frame();
+            if mouse.x < frame.origin.x
+                || mouse.x > frame.origin.x + frame.size.width
+                || mouse.y < frame.origin.y
+                || mouse.y > frame.origin.y + frame.size.height
+            {
+                continue;
+            }
+            let visible = screen.visibleFrame();
+            origin_x = origin_x.clamp(
+                visible.origin.x + 8.0,
+                (visible.origin.x + visible.size.width - width - 8.0).max(visible.origin.x + 8.0),
+            );
+            origin_y = origin_y.clamp(
+                visible.origin.y + 8.0,
+                (visible.origin.y + visible.size.height - height - 8.0).max(visible.origin.y + 8.0),
+            );
+            break;
+        }
+
+        let content = NSView::initWithFrame(
+            NSView::alloc(mtm),
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height)),
+        );
+        style_layer(&content, color_surface(0.97), 12.0, 1.0, color_accent(0.65));
+        let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
+        label.setFrame(NSRect::new(
+            NSPoint::new(14.0, 12.0),
+            NSSize::new(width - 28.0, height - 20.0),
+        ));
+        label.setFont(Some(&NSFont::systemFontOfSize(10.5)));
+        style_label(&label, color_text(1.0));
+        label.setAlignment(NSTextAlignment::Center);
+        content.addSubview(&label);
+
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+                NSWindow::alloc(mtm),
+                NSRect::new(NSPoint::new(origin_x, origin_y), NSSize::new(width, height)),
+                NSWindowStyleMask::Borderless,
+                NSBackingStoreType::Buffered,
+                false,
+            )
+        };
+        unsafe { window.setReleasedWhenClosed(false) };
+        window.setOpaque(false);
+        window.setBackgroundColor(Some(&NSColor::clearColor()));
+        window.setHasShadow(true);
+        window.setIgnoresMouseEvents(true);
+        window.setLevel(NSStatusWindowLevel + 1);
+        window.setContentView(Some(&content));
+        window.orderFrontRegardless();
+        self.ivars().hint_window.replace(Some(window));
+        let _: () = unsafe {
+            msg_send![
+                self,
+                performSelector: sel!(hideHint:),
+                withObject: self,
+                afterDelay: 4.5_f64
+            ]
+        };
     }
 
     fn show_settings_popover(&self, button: &NSStatusBarButton) {
@@ -2871,6 +2999,16 @@ fn launch_at_login_enabled() -> bool {
 }
 
 const ONBOARDING_SEEN_KEY: &str = "FrostyOnboardingSeenV1";
+const ROLL_HINT_SEEN_KEY: &str = "FrostyRollHintSeenV1";
+
+fn roll_hint_seen() -> bool {
+    NSUserDefaults::standardUserDefaults().boolForKey(&NSString::from_str(ROLL_HINT_SEEN_KEY))
+}
+
+fn mark_roll_hint_seen() {
+    NSUserDefaults::standardUserDefaults()
+        .setBool_forKey(true, &NSString::from_str(ROLL_HINT_SEEN_KEY));
+}
 
 fn onboarding_seen() -> bool {
     NSUserDefaults::standardUserDefaults().boolForKey(&NSString::from_str(ONBOARDING_SEEN_KEY))

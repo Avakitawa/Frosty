@@ -404,6 +404,10 @@ impl MetalRenderer {
         self.particles.release_snowman(id)
     }
 
+    pub fn snowball_limit_reached(&self) -> bool {
+        self.particles.snowball_limit_reached()
+    }
+
     pub fn can_roll_snowball_at(&self, x: f32, y: f32) -> bool {
         self.cursor_tool == 30 && self.particles.can_roll_snowball_at(x, y)
     }

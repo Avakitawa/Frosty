@@ -172,6 +172,72 @@ pub struct ParticleSystem {
     next_snowball_spawn_at: f32,
 }
 
+fn snowman_collision_capsule(snowman: &Snowman) -> (f32, f32, f32, f32) {
+    let radius = snowman.radius;
+    (
+        snowman.x,
+        snowman.y - radius * 4.25,
+        snowman.y - radius * 0.85,
+        radius * 0.85,
+    )
+}
+
+fn push_out_of_snowman(
+    point_x: &mut f32,
+    point_y: &mut f32,
+    ball_radius: f32,
+    snowman: &Snowman,
+    aspect: f32,
+) -> bool {
+    let (center_x, top, bottom, capsule_radius) = snowman_collision_capsule(snowman);
+    let nearest_y = point_y.clamp(top, bottom);
+    let delta_x = (*point_x - center_x) * aspect;
+    let delta_y = *point_y - nearest_y;
+    let minimum = ball_radius + capsule_radius;
+    let distance_squared = delta_x * delta_x + delta_y * delta_y;
+    if distance_squared >= minimum * minimum {
+        return false;
+    }
+    let distance = distance_squared.sqrt();
+    let (normal_x, normal_y) = if distance > f32::EPSILON {
+        (delta_x / distance, delta_y / distance)
+    } else {
+        (1.0, 0.0)
+    };
+    let overlap = minimum - distance;
+    *point_x += normal_x * overlap / aspect.max(f32::EPSILON);
+    *point_y += normal_y * overlap;
+    true
+}
+
+fn push_out_of_circle(
+    point_x: &mut f32,
+    point_y: &mut f32,
+    radius: f32,
+    other_x: f32,
+    other_y: f32,
+    other_radius: f32,
+    aspect: f32,
+) -> bool {
+    let delta_x = (*point_x - other_x) * aspect;
+    let delta_y = *point_y - other_y;
+    let minimum = radius + other_radius;
+    let distance_squared = delta_x * delta_x + delta_y * delta_y;
+    if distance_squared >= minimum * minimum {
+        return false;
+    }
+    let distance = distance_squared.sqrt();
+    let (normal_x, normal_y) = if distance > f32::EPSILON {
+        (delta_x / distance, delta_y / distance)
+    } else {
+        (1.0, 0.0)
+    };
+    let overlap = minimum - distance;
+    *point_x += normal_x * overlap / aspect.max(f32::EPSILON);
+    *point_y += normal_y * overlap;
+    true
+}
+
 impl ParticleSystem {
     pub fn new(count: usize, seed: u32, config: PhysicsConfig) -> Self {
         Self::with_capacity(count, count, seed, config)
@@ -293,9 +359,36 @@ impl ParticleSystem {
             return false;
         }
         let radius = self.snowballs[index].radius;
-        let radius_x = radius / self.display_aspect;
-        let x = x.clamp(radius_x, 1.0 - radius_x);
-        let y = y.clamp(radius, 1.0 - radius);
+        let aspect = self.display_aspect;
+        let radius_x = radius / aspect;
+        let mut x = x.clamp(radius_x, 1.0 - radius_x);
+        let mut y = y.clamp(radius, 1.0 - radius);
+        let obstacles: Vec<(f32, f32, f32)> = self
+            .snowballs
+            .iter()
+            .enumerate()
+            .filter(|(other_index, _)| *other_index != index)
+            .map(|(_, ball)| (ball.x, ball.y, ball.radius))
+            .collect();
+        let snowmen: Vec<Snowman> = self.snowmen.to_vec();
+        for _ in 0..3 {
+            for (other_x, other_y, other_radius) in &obstacles {
+                push_out_of_circle(
+                    &mut x,
+                    &mut y,
+                    radius,
+                    *other_x,
+                    *other_y,
+                    *other_radius,
+                    aspect,
+                );
+            }
+            for snowman in &snowmen {
+                push_out_of_snowman(&mut x, &mut y, radius, snowman, aspect);
+            }
+            x = x.clamp(radius_x, 1.0 - radius_x);
+            y = y.clamp(radius, 1.0 - radius);
+        }
         let dt = delta_seconds.clamp(1.0 / 240.0, 0.05);
         let ball = &mut self.snowballs[index];
         ball.drag_velocity_x = ((x - ball.x) / dt).clamp(-2.0, 2.0);
@@ -650,6 +743,11 @@ impl ParticleSystem {
 
     /// True when the mitten could roll a snowball out of the drift under this
     /// point. The UI uses this to keep normal pointer movement side-effect free.
+    /// True when no more snowballs can be created.
+    pub fn snowball_limit_reached(&self) -> bool {
+        self.snowballs.len() >= MAX_SNOWBALLS
+    }
+
     pub fn can_roll_snowball_at(&self, x: f32, y: f32) -> bool {
         self.snowball_candidate_at(x, y).is_some()
     }
@@ -1340,6 +1438,24 @@ impl ParticleSystem {
                 broken.push(original.id);
                 index += 1;
                 continue;
+            }
+
+            let snowmen: Vec<Snowman> = self.snowmen.to_vec();
+            let mut touched_snowman = false;
+            for _ in 0..3 {
+                for snowman in &snowmen {
+                    if push_out_of_snowman(&mut x, &mut y, radius, snowman, aspect) {
+                        touched_snowman = true;
+                    }
+                }
+                x = x.clamp(radius_x, 1.0 - radius_x);
+                y = y.clamp(radius, 1.0 - radius);
+            }
+            if touched_snowman {
+                velocity_x *= 0.35;
+                velocity_y = 0.0;
+                state = SnowballState::Free;
+                surface_id = NO_SURFACE_ID;
             }
 
             self.snowballs[index] = Snowball {
@@ -3686,6 +3802,106 @@ mod snowball_tests {
     }
 
     #[test]
+    fn held_ball_cannot_pass_through_another_ball() {
+        let mut system = ParticleSystem::new(0, 71, PhysicsConfig::default());
+        system.snowballs.push(free_ball(1, 0.50, 0.50));
+        system.snowballs.push(free_ball(2, 0.52, 0.50));
+        let id = system.grab_snowball(0.50, 0.50).expect("grab held ball");
+        assert!(system.drag_snowball(id, 0.52, 0.50, 1.0 / 120.0));
+        let first = system.snowballs()[0];
+        let second = system.snowballs()[1];
+        let dx = (first.x - second.x) * system.display_aspect;
+        let dy = first.y - second.y;
+        assert!(
+            dx.hypot(dy) >= first.radius + second.radius - 0.0005,
+            "the held ball clipped through its neighbour: {dx} {dy}"
+        );
+    }
+
+    #[test]
+    fn held_ball_is_clamped_to_the_screen_edges() {
+        let mut system = ParticleSystem::new(0, 73, PhysicsConfig::default());
+        system.snowballs.push(free_ball(1, 0.5, 0.5));
+        let id = system.grab_snowball(0.5, 0.5).expect("grab held ball");
+        assert!(system.drag_snowball(id, -1.0, 2.0, 1.0 / 120.0));
+        let ball = system.snowballs()[0];
+        assert!((ball.x - ball.radius / system.display_aspect).abs() < 0.0005);
+        assert!((ball.y - (1.0 - ball.radius)).abs() < 0.0005);
+    }
+
+    #[test]
+    fn held_ball_is_blocked_by_a_snowman() {
+        let mut system = ParticleSystem::new(0, 79, PhysicsConfig::default());
+        system.snowballs.push(free_ball(1, 0.5, 0.5));
+        system.snowmen.push(Snowman {
+            id: 1,
+            x: 0.5,
+            y: 0.7,
+            radius: 0.025,
+            surface_id: NO_SURFACE_ID,
+            surface_offset_x: 0.0,
+            held: false,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
+            drag_velocity_x: 0.0,
+            drag_velocity_y: 0.0,
+            drag_offset_x: 0.0,
+            drag_offset_y: 0.0,
+        });
+        let id = system.grab_snowball(0.5, 0.5).expect("grab held ball");
+        assert!(system.drag_snowball(id, 0.5, 0.68, 1.0 / 120.0));
+        let ball = system.snowballs()[0];
+        let (cx, top, bottom, capsule_radius) = snowman_collision_capsule(&system.snowmen()[0]);
+        let ny = ball.y.clamp(top, bottom);
+        let dx = (ball.x - cx) * system.display_aspect;
+        let dy = ball.y - ny;
+        assert!(
+            dx.hypot(dy) >= ball.radius + capsule_radius - 0.0005,
+            "held ball entered a snowman body"
+        );
+    }
+
+    #[test]
+    fn free_ball_is_pushed_out_of_a_snowman() {
+        let mut system = ParticleSystem::new(0, 81, PhysicsConfig::default());
+        system.snowmen.push(Snowman {
+            id: 1,
+            x: 0.5,
+            y: 0.7,
+            radius: 0.025,
+            surface_id: NO_SURFACE_ID,
+            surface_offset_x: 0.0,
+            held: false,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
+            drag_velocity_x: 0.0,
+            drag_velocity_y: 0.0,
+            drag_offset_x: 0.0,
+            drag_offset_y: 0.0,
+        });
+        system.snowballs.push(free_ball(2, 0.5, 0.66));
+        system.update(1.0 / 120.0);
+        let ball = system.snowballs()[0];
+        let (cx, top, bottom, capsule_radius) = snowman_collision_capsule(&system.snowmen()[0]);
+        let ny = ball.y.clamp(top, bottom);
+        let dx = (ball.x - cx) * system.display_aspect;
+        let dy = ball.y - ny;
+        assert!(
+            dx.hypot(dy) >= ball.radius + capsule_radius - 0.002,
+            "free ball settled inside a snowman body"
+        );
+    }
+
+    #[test]
+    fn snowball_limit_is_exposed() {
+        let mut system = ParticleSystem::new(0, 83, PhysicsConfig::default());
+        for id in 0..MAX_SNOWBALLS as u64 {
+            system.snowballs.push(free_ball(id + 1, 0.5, 0.5));
+        }
+        assert!(system.snowball_limit_reached());
+    }
+
+    #[test]
     fn snow_moving_under_a_resting_ball_is_followed_smoothly() {
         let mut system = ParticleSystem::new(0, 67, PhysicsConfig::default());
         system.set_surfaces(&[flat_surface(1, 0.1, 0.6, 0.8, 0.05)]);
@@ -3754,6 +3970,36 @@ mod snowball_tests {
             snowman.surface_id
         );
         assert_eq!(snowman.surface_id, 1);
+    }
+
+    #[test]
+    fn dragging_a_snowman_outside_the_display_keeps_it_on_screen() {
+        let mut system = ParticleSystem::new(0, 89, PhysicsConfig::default());
+        system.snowmen.push(Snowman {
+            id: 1,
+            x: 0.5,
+            y: 0.7,
+            radius: 0.02,
+            surface_id: NO_SURFACE_ID,
+            surface_offset_x: 0.0,
+            held: false,
+            velocity_x: 0.0,
+            velocity_y: 0.0,
+            drag_velocity_x: 0.0,
+            drag_velocity_y: 0.0,
+            drag_offset_x: 0.0,
+            drag_offset_y: 0.0,
+        });
+        let id = system.grab_snowman(0.5, 0.7).expect("grab snowman");
+        assert!(system.drag_snowman(id, -10.0, -10.0, 0.05));
+        let snowman = system.snowmen()[0];
+        let radius_x = snowman.radius / system.display_aspect;
+        assert!(snowman.x >= radius_x - 0.0005);
+        assert!(snowman.y >= snowman.radius * 4.7 - 0.0005);
+        assert!(system.drag_snowman(id, 10.0, 10.0, 0.05));
+        let snowman = system.snowmen()[0];
+        assert!(snowman.x <= 1.0 - radius_x + 0.0005);
+        assert!(snowman.y <= 1.0 + 0.0005);
     }
 
     #[test]
