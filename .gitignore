@@ -11,11 +11,12 @@
 
 # Design references and local documentation
 /REFS/
-/README.md
 /NOTES.md
 /roadmap.md
 /newsnow.md
 /*.md
+!/README.md
+!/README.ru.md
 
 # Root-only source artwork; the packaged copy lives in app/assets
 /SnowAppIcon.png
