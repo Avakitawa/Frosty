@@ -1,9 +1,14 @@
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+use objc2::AnyThread;
 use objc2_core_foundation::{CFDictionary, CFNumber, CFString, CFType, CGRect};
 use objc2_core_graphics::{
     kCGWindowAlpha, kCGWindowBounds, kCGWindowLayer, kCGWindowName, kCGWindowNumber,
     kCGWindowOwnerName, kCGWindowOwnerPID, CGRectMakeWithDictionaryRepresentation,
     CGWindowListCopyWindowInfo, CGWindowListOption,
 };
+use objc2_foundation::{NSString, NSUserDefaults};
 
 #[derive(Clone, Copy, Debug)]
 pub struct VisibleWindow {
@@ -36,6 +41,63 @@ struct WindowGeometry {
     y: f64,
     width: f64,
     height: f64,
+}
+
+fn estimated_dock_length(
+    tile_size: f64,
+    app_count: usize,
+    other_count: usize,
+    recent_count: usize,
+) -> Option<f64> {
+    if !tile_size.is_finite() || tile_size <= 0.0 {
+        return None;
+    }
+    // Two system tiles (Finder and Launchpad/Applications) are not always
+    // present in persistent-apps. The trash tile and the separator are.
+    let tiles = app_count + other_count + recent_count + 2;
+    if tiles == 0 {
+        return None;
+    }
+    let slot = tile_size + 2.0;
+    let separator = tile_size * 0.45;
+    Some(tiles as f64 * slot + separator + slot + 6.0)
+}
+
+pub fn dock_preferred_length() -> Option<f64> {
+    static CACHE: OnceLock<Mutex<(Instant, Option<f64>)>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new((Instant::now() - Duration::from_secs(1), None)));
+    if let Ok(guard) = cache.lock() {
+        if guard.0.elapsed() < Duration::from_millis(500) {
+            return guard.1;
+        }
+    }
+    let length = read_dock_preferred_length();
+    if let Ok(mut guard) = cache.lock() {
+        *guard = (Instant::now(), length);
+    }
+    length
+}
+
+fn read_dock_preferred_length() -> Option<f64> {
+    let defaults = NSUserDefaults::initWithSuiteName(
+        NSUserDefaults::alloc(),
+        Some(&NSString::from_str("com.apple.dock")),
+    )?;
+    let tile_size = defaults.integerForKey(&NSString::from_str("tilesize")) as f64;
+    let app_count = defaults
+        .arrayForKey(&NSString::from_str("persistent-apps"))
+        .map_or(0, |items| items.count());
+    let other_count = defaults
+        .arrayForKey(&NSString::from_str("persistent-others"))
+        .map_or(0, |items| items.count());
+    let recent_count = if defaults.boolForKey(&NSString::from_str("show-recents")) {
+        defaults
+            .arrayForKey(&NSString::from_str("recent-apps"))
+            .map_or(0, |items| items.count())
+    } else {
+        0
+    };
+    estimated_dock_length(tile_size, app_count, other_count, recent_count)
 }
 
 pub fn visible_windows(appkit_top: f64, display_area: f64) -> Result<WindowSnapshot, String> {
@@ -274,7 +336,8 @@ fn string_value(
 #[cfg(test)]
 mod tests {
     use super::{
-        exposed_top_segments, is_blocking_snow, is_dock_window, is_launchpad, WindowGeometry,
+        estimated_dock_length, exposed_top_segments, is_blocking_snow, is_dock_window,
+        is_launchpad, WindowGeometry,
     };
 
     fn window(id: u32, x: f64, cg_top: f64, width: f64, height: f64) -> WindowGeometry {
@@ -414,5 +477,14 @@ mod tests {
 
         assert!(!is_blocking_snow(&menu_bar));
         assert!(exposed_top_segments(&[menu_bar]).is_empty());
+    }
+    #[test]
+    fn estimates_a_dock_length_from_preferences() {
+        let width = estimated_dock_length(41.0, 17, 0, 0).expect("dock width");
+        assert!(
+            (880.0..890.0).contains(&width),
+            "unexpected Dock width {width}"
+        );
+        assert!(estimated_dock_length(0.0, 17, 0, 0).is_none());
     }
 }

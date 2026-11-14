@@ -536,6 +536,15 @@ define_class!(
         #[unsafe(method(togglePhysics:))]
         fn toggle_physics(&self, _sender: &NSButton) {
             let expanded = !self.ivars().physics_expanded.get();
+            if expanded && !settings_expanded_fits(self.mtm()) {
+                let language = self.ivars().language.get();
+                self.show_transient_hint(tr(
+                    language,
+                    "Для физики не хватает высоты экрана. Сверни её на этом Mac.",
+                    "There is not enough screen height for physics on this Mac.",
+                ));
+                return;
+            }
             self.set_physics_expanded(expanded);
         }
 
@@ -959,6 +968,9 @@ impl AppDelegate {
     }
 
     fn show_settings_popover(&self, button: &NSStatusBarButton) {
+        if self.ivars().physics_expanded.get() && !settings_expanded_fits(self.mtm()) {
+            self.set_physics_expanded(false);
+        }
         if self.ivars().settings_popover.get().is_none() {
             self.build_settings_popover(self.mtm());
         }
@@ -1867,6 +1879,9 @@ impl AppDelegate {
     }
 
     fn set_physics_expanded(&self, expanded: bool) {
+        if expanded && !settings_expanded_fits(self.mtm()) {
+            return;
+        }
         self.ivars().physics_expanded.set(expanded);
         if let Some(section) = self.ivars().physics_section.borrow().as_ref() {
             section.setHidden(!expanded);
@@ -2994,6 +3009,11 @@ fn slider_tooltip(tag: isize, language: Language) -> &'static str {
     }
 }
 
+fn settings_expanded_fits(mtm: MainThreadMarker) -> bool {
+    NSScreen::mainScreen(mtm)
+        .is_some_and(|screen| screen.visibleFrame().size.height >= PANEL_HEIGHT_EXPANDED + 8.0)
+}
+
 fn launch_at_login_enabled() -> bool {
     unsafe { SMAppService::mainAppService().status() == SMAppServiceStatus::Enabled }
 }
@@ -3203,7 +3223,9 @@ fn dock_surfaces_for_display(
         DockEdge::Bottom => {
             let bounds = dock_bounds.or_else(|| {
                 (bottom_inset > 20.0).then(|| {
-                    let width = (frame.size.width * 0.64).min(visible_frame.size.width);
+                    let width = crate::windows::dock_preferred_length()
+                        .map(|width| width.min(visible_frame.size.width))
+                        .unwrap_or_else(|| (frame.size.width * 0.64).min(visible_frame.size.width));
                     let left = (screen_left + (frame.size.width - width) / 2.0)
                         .max(visible_frame.origin.x);
                     (
@@ -3266,21 +3288,23 @@ fn dock_surfaces_for_display(
                 } else {
                     right_inset.max(64.0)
                 };
-                let y = visible_frame.origin.y;
-                let height = visible_frame.size.height;
+                let length = crate::windows::dock_preferred_length()
+                    .map(|length| length.min(visible_frame.size.height))
+                    .unwrap_or(visible_frame.size.height);
+                let y = visible_frame.origin.y + (visible_frame.size.height - length) / 2.0;
                 if edge == DockEdge::Left {
                     (
                         screen_left,
                         y,
                         (screen_left + thickness).min(screen_right),
-                        y + height,
+                        y + length,
                     )
                 } else {
                     (
                         (screen_right - thickness).max(screen_left),
                         y,
                         screen_right,
-                        y + height,
+                        y + length,
                     )
                 }
             });
