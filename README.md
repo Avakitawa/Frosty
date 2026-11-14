@@ -148,6 +148,7 @@ carrot nose and buttons.
 | Launchpad | Snow accumulates on supported Launchpad edges |
 | Tools | Mitten for sculpting and snowballs, shovel for removing snow |
 | First launch | A short guide to the menu-bar icon, settings and the Option snowball gesture |
+| Menu | Right-click the menu-bar icon for settings, pause, weather presets, launch at login and quit |
 | Settings | Compact, no-scroll panel; physics controls live under **Дополнительно** |
 | Appearance | Native dark panel in the `#091540`, `#3D518C`, `#1B2CC1`, `#7692FF` and `#ABD2FA` palette |
 

@@ -3,22 +3,23 @@ use std::f32::consts::TAU;
 use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
+use objc2::runtime::{AnyObject, Sel};
 use objc2::{define_class, msg_send, sel, AllocAnyThread, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSAutoresizingMaskOptions,
     NSBackingStoreType, NSBezierPath, NSButton, NSButtonType, NSCellImagePosition, NSColor,
-    NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSFocusRingType,
-    NSFont, NSGradient, NSImage, NSImageScaling, NSImageSymbolConfiguration, NSImageView,
-    NSPopover, NSPopoverBehavior, NSScreen, NSSlider, NSStatusBar, NSStatusBarButton, NSStatusItem,
-    NSStatusWindowLevel, NSTextAlignment, NSTextField, NSView, NSViewController, NSWindow,
-    NSWindowStyleMask, NSWorkspace,
+    NSControlStateValueOff, NSControlStateValueOn, NSEvent, NSEventModifierFlags, NSEventType,
+    NSFocusRingType, NSFont, NSGradient, NSImage, NSImageScaling, NSImageSymbolConfiguration,
+    NSImageView, NSMenu, NSMenuItem, NSPopover, NSPopoverBehavior, NSScreen, NSSlider, NSStatusBar,
+    NSStatusBarButton, NSStatusItem, NSStatusWindowLevel, NSTextAlignment, NSTextField, NSView,
+    NSViewController, NSWindow, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSData, NSLocale, NSNotification, NSObject,
     NSObjectProtocol, NSPoint, NSRect, NSRectEdge, NSSize, NSString, NSUserDefaults, NSURL,
 };
 use objc2_metal_kit::{MTKView, MTKViewDelegate};
+use objc2_service_management::{SMAppService, SMAppServiceStatus};
 use winter_core::SnowfallState;
 use winter_physics::{BlockedRegion, CollisionSurface};
 
@@ -239,7 +240,7 @@ define_class!(
             ))));
             unsafe {
                 button.setTarget(Some(self));
-                button.setAction(Some(sel!(openSettings:)));
+                button.setAction(Some(sel!(statusItemClicked:)));
             }
             self.ivars().status_item.set(status_item).unwrap();
             self.refresh_overlays();
@@ -389,16 +390,58 @@ define_class!(
     impl AppDelegate {
         #[unsafe(method(openSettings:))]
         fn open_settings(&self, sender: &NSStatusBarButton) {
-            if self.ivars().settings_popover.get().is_none() {
-                self.build_settings_popover(self.mtm());
+            self.show_settings_popover(sender);
+        }
+
+        #[unsafe(method(statusItemClicked:))]
+        fn status_item_clicked(&self, sender: &NSStatusBarButton) {
+            let app = NSApplication::sharedApplication(self.mtm());
+            let right_click = app.currentEvent().as_ref().is_some_and(|event| {
+                event.r#type() == NSEventType::RightMouseDown
+                    || event.r#type() == NSEventType::RightMouseUp
+                    || event
+                        .modifierFlags()
+                        .contains(NSEventModifierFlags::Control)
+            });
+            if right_click {
+                self.show_status_menu(sender);
+            } else {
+                self.show_settings_popover(sender);
             }
-            if let Some(popover) = self.ivars().settings_popover.get() {
-                popover.showRelativeToRect_ofView_preferredEdge(
-                    sender.bounds(),
-                    sender,
-                    NSRectEdge::MinY,
-                );
+        }
+
+        #[unsafe(method(menuOpenSettings:))]
+        fn menu_open_settings(&self, _sender: &NSMenuItem) {
+            if let Some(button) = self
+                .ivars()
+                .status_item
+                .get()
+                .and_then(|item| item.button(self.mtm()))
+            {
+                self.show_settings_popover(&button);
             }
+        }
+
+        #[unsafe(method(menuTogglePause:))]
+        fn menu_toggle_pause(&self, _sender: &NSMenuItem) {
+            let enabled = !self.ivars().settings.borrow().enabled;
+            self.set_snowfall_enabled(enabled);
+        }
+
+        #[unsafe(method(menuWeatherPreset:))]
+        fn menu_weather_preset(&self, sender: &NSMenuItem) {
+            let mode = sender.tag().clamp(0, 2) as u8;
+            self.apply_weather_mode(mode);
+        }
+
+        #[unsafe(method(menuToggleLaunchAtLogin:))]
+        fn menu_toggle_launch_at_login(&self, _sender: &NSMenuItem) {
+            self.toggle_launch_at_login();
+        }
+
+        #[unsafe(method(menuQuit:))]
+        fn menu_quit(&self, _sender: &NSMenuItem) {
+            NSApplication::sharedApplication(self.mtm()).terminate(None);
         }
 
         #[unsafe(method(dismissOnboarding:))]
@@ -732,6 +775,155 @@ impl AppDelegate {
         self.ivars().onboarding_window.replace(Some(window.clone()));
         NSApplication::sharedApplication(mtm).activate();
         window.makeKeyAndOrderFront(None);
+    }
+
+    fn show_settings_popover(&self, button: &NSStatusBarButton) {
+        if self.ivars().settings_popover.get().is_none() {
+            self.build_settings_popover(self.mtm());
+        }
+        if let Some(popover) = self.ivars().settings_popover.get() {
+            popover.showRelativeToRect_ofView_preferredEdge(
+                button.bounds(),
+                button,
+                NSRectEdge::MinY,
+            );
+        }
+    }
+
+    fn set_snowfall_enabled(&self, enabled: bool) {
+        self.ivars().settings.borrow_mut().enabled = enabled;
+        self.save_settings();
+        self.apply_settings();
+        self.sync_toggle_controls();
+    }
+
+    fn apply_weather_mode(&self, mode: u8) {
+        {
+            let mut settings = self.ivars().settings.borrow_mut();
+            apply_weather_preset(&mut settings, mode);
+            *settings = settings.validate();
+        }
+        self.sync_weather_buttons();
+        self.sync_wind_controls();
+        self.sync_slider_controls();
+        self.sync_toggle_controls();
+        self.save_settings();
+        self.apply_settings();
+    }
+
+    fn toggle_launch_at_login(&self) {
+        let service = unsafe { SMAppService::mainAppService() };
+        let status = unsafe { service.status() };
+        if status == SMAppServiceStatus::RequiresApproval {
+            if let Some(url) = NSURL::URLWithString(&NSString::from_str(
+                "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+            )) {
+                NSWorkspace::sharedWorkspace().openURL(&url);
+            }
+            return;
+        }
+        let result = if status == SMAppServiceStatus::Enabled {
+            unsafe { service.unregisterAndReturnError() }
+        } else {
+            unsafe { service.registerAndReturnError() }
+        };
+        if let Err(error) = result {
+            eprintln!("Cannot update login item: {}", error.localizedDescription());
+        }
+    }
+
+    fn show_status_menu(&self, button: &NSStatusBarButton) {
+        let mtm = self.mtm();
+        let language = self.ivars().language.get();
+        let settings = *self.ivars().settings.borrow();
+        let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("Frosty"));
+        menu.setAutoenablesItems(false);
+
+        let add_item =
+            |title: &str, action: Option<Sel>, tag: isize, checked: bool| -> Retained<NSMenuItem> {
+                let item = unsafe {
+                    NSMenuItem::initWithTitle_action_keyEquivalent(
+                        NSMenuItem::alloc(mtm),
+                        &NSString::from_str(title),
+                        action,
+                        &NSString::from_str(""),
+                    )
+                };
+                unsafe { item.setTarget(Some(self)) };
+                item.setTag(tag);
+                if checked {
+                    item.setState(NSControlStateValueOn);
+                }
+                menu.addItem(&item);
+                item
+            };
+
+        add_item(
+            tr(language, "Настройки", "Settings"),
+            Some(sel!(menuOpenSettings:)),
+            0,
+            false,
+        );
+        add_item(
+            if settings.enabled {
+                tr(language, "Пауза", "Pause")
+            } else {
+                tr(language, "Продолжить", "Resume")
+            },
+            Some(sel!(menuTogglePause:)),
+            1,
+            false,
+        );
+
+        let snowfall_item = add_item(tr(language, "Снегопад", "Snowfall"), None, 0, false);
+        let snowfall_menu = NSMenu::initWithTitle(
+            NSMenu::alloc(mtm),
+            &NSString::from_str(tr(language, "Снегопад", "Snowfall")),
+        );
+        snowfall_menu.setAutoenablesItems(false);
+        for (mode, title) in [
+            (0_u8, tr(language, "Лёгкий", "Light")),
+            (1, tr(language, "Спокойный", "Calm")),
+            (2, tr(language, "Метель", "Blizzard")),
+        ] {
+            let item = unsafe {
+                NSMenuItem::initWithTitle_action_keyEquivalent(
+                    NSMenuItem::alloc(mtm),
+                    &NSString::from_str(title),
+                    Some(sel!(menuWeatherPreset:)),
+                    &NSString::from_str(""),
+                )
+            };
+            unsafe { item.setTarget(Some(self)) };
+            item.setTag(mode as isize);
+            if settings.weather_mode == mode {
+                item.setState(NSControlStateValueOn);
+            }
+            snowfall_menu.addItem(&item);
+        }
+        snowfall_item.setSubmenu(Some(&snowfall_menu));
+
+        let launch_enabled = launch_at_login_enabled();
+        add_item(
+            tr(language, "Запускать при входе", "Launch at login"),
+            Some(sel!(menuToggleLaunchAtLogin:)),
+            2,
+            launch_enabled,
+        );
+
+        menu.addItem(&NSMenuItem::separatorItem(mtm));
+        add_item(
+            tr(language, "Выход", "Quit"),
+            Some(sel!(menuQuit:)),
+            3,
+            false,
+        );
+
+        menu.popUpMenuPositioningItem_atLocation_inView(
+            None,
+            NSPoint::new(0.0, button.bounds().size.height),
+            Some(button),
+        );
     }
 
     fn build_settings_popover(&self, mtm: MainThreadMarker) {
@@ -2505,6 +2697,10 @@ fn slider_tooltip(tag: isize, language: Language) -> &'static str {
         ),
         _ => "",
     }
+}
+
+fn launch_at_login_enabled() -> bool {
+    unsafe { SMAppService::mainAppService().status() == SMAppServiceStatus::Enabled }
 }
 
 const ONBOARDING_SEEN_KEY: &str = "FrostyOnboardingSeenV1";

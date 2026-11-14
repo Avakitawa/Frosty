@@ -17,6 +17,7 @@ objc2-metal-kit.workspace = true
 objc2-quartz-core.workspace = true
 objc2-core-foundation.workspace = true
 objc2-core-graphics.workspace = true
+objc2-service-management = "0.3.2"
 
 [[bin]]
 name = "frosty"
