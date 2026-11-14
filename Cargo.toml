@@ -1,0 +1,105 @@
+[workspace]
+members = [
+    "crates/winter-core",
+    "crates/winter-physics",
+    "app",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.9.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.82"
+
+[workspace.dependencies]
+winter-core = { path = "crates/winter-core" }
+winter-physics = { path = "crates/winter-physics" }
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "NSApplication",
+    "NSBezierPath",
+    "NSButton",
+    "NSButtonCell",
+    "NSColor",
+    "NSControl",
+    "NSCell",
+    "NSGraphics",
+    "NSMenu",
+    "NSMenuItem",
+    "NSScreen",
+    "NSScrollView",
+    "NSClipView",
+    "NSResponder",
+    "NSEvent",
+    "NSRunningApplication",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSPopover",
+    "NSViewController",
+    "NSSlider",
+    "NSTextField",
+    "NSText",
+    "NSFont",
+    "NSFontDescriptor",
+    "NSGradient",
+    "NSImage",
+    "NSImageView",
+    "NSView",
+    "NSWindow",
+    "NSWorkspace",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+    "objc2-quartz-core",
+] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = [
+    "NSArray",
+    "NSGeometry",
+    "NSNotification",
+    "NSObject",
+    "NSString",
+    "NSURL",
+] }
+objc2-metal = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "MTLAllocation",
+    "MTLBuffer",
+    "MTLCommandBuffer",
+    "MTLCommandEncoder",
+    "MTLCommandQueue",
+    "MTLDevice",
+    "MTLDrawable",
+    "MTLLibrary",
+    "MTLRenderCommandEncoder",
+    "MTLRenderPass",
+    "MTLRenderPipeline",
+    "MTLResource",
+    "MTLTypes",
+] }
+objc2-metal-kit = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "MTKView",
+    "objc2-app-kit",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+    "objc2-quartz-core",
+] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
+    "CFArray",
+    "CFCGTypes",
+    "CFDictionary",
+    "CFNumber",
+    "CFString",
+    "objc2",
+] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = [
+    "CGGeometry",
+    "CGWindow",
+    "objc2",
+] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = [
+    "CALayer",
+    "objc2-core-foundation",
+    "objc2-core-graphics",
+] }

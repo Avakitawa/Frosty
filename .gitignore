@@ -1,0 +1,34 @@
+# Build output / packaged apps
+/target/
+/dist/
+/WinterApp/
+/WinterApp.dmg
+*.dmg
+*.zip
+*.log
+*.tmp
+*.tmp-*
+
+# Design references and local documentation
+/REFS/
+/README.md
+/NOTES.md
+/roadmap.md
+/newsnow.md
+/*.md
+
+# Root-only source artwork; the packaged copy lives in app/assets
+/SnowAppIcon.png
+/FrostAppLogo.png
+/*.png
+/*.icns
+/*.jpg
+/*.jpeg
+
+# macOS / editor junk
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
