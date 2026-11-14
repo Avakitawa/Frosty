@@ -42,7 +42,11 @@ const HEADER_HEIGHT: f64 = 44.0;
 const WEATHER_TITLE_TOP: f64 = HEADER_TOP + HEADER_HEIGHT + 16.0;
 const WEATHER_TOP: f64 = WEATHER_TITLE_TOP + SECTION_TITLE_HEIGHT + TITLE_TO_CONTROL;
 const WEATHER_HEIGHT: f64 = 50.0;
-const TOOL_TITLE_TOP: f64 = WEATHER_TOP + WEATHER_HEIGHT + 14.0;
+const WEATHER_META_TOP: f64 = WEATHER_TOP + WEATHER_HEIGHT + 4.0;
+const WEATHER_META_HEIGHT: f64 = 20.0;
+const WEATHER_HINT_TOP: f64 = WEATHER_META_TOP + 22.0;
+const WEATHER_HINT_HEIGHT: f64 = 14.0;
+const TOOL_TITLE_TOP: f64 = WEATHER_HINT_TOP + WEATHER_HINT_HEIGHT + 10.0;
 const TOOL_TOP: f64 = TOOL_TITLE_TOP + SECTION_TITLE_HEIGHT + TITLE_TO_CONTROL;
 const TOOL_HEIGHT: f64 = 58.0;
 const TOOL_HINT_TOP: f64 = TOOL_TOP + TOOL_HEIGHT + 6.0;
@@ -166,6 +170,9 @@ struct AppDelegateIvars {
     settings: RefCell<AppSettings>,
     cursor_tool: Cell<u8>,
     language: Cell<Language>,
+    last_preset: Cell<u8>,
+    weather_info: RefCell<Option<Retained<NSTextField>>>,
+    weather_badge: RefCell<Option<Retained<NSTextField>>>,
     settings_popover: OnceCell<Retained<NSPopover>>,
     settings_controller: OnceCell<Retained<NSViewController>>,
     settings_buttons: RefCell<Vec<Retained<NSButton>>>,
@@ -217,6 +224,15 @@ define_class!(
                     *settings = settings.validate();
                 }
             }
+            let last_preset = {
+                let settings = self.ivars().settings.borrow();
+                if settings.weather_mode <= 2 {
+                    settings.weather_mode
+                } else {
+                    1
+                }
+            };
+            self.ivars().last_preset.set(last_preset);
             if !self.ivars().settings.borrow().enabled {
                 let mut state = self.ivars().state.get();
                 state.toggle();
@@ -450,6 +466,36 @@ define_class!(
             NSApplication::sharedApplication(self.mtm()).terminate(None);
         }
 
+        #[unsafe(method(resetWeatherPreset:))]
+        fn reset_weather_preset(&self, _sender: &NSButton) {
+            let mode = {
+                let settings = self.ivars().settings.borrow();
+                if settings.weather_mode <= 2 {
+                    settings.weather_mode
+                } else {
+                    self.ivars().last_preset.get().min(2)
+                }
+            };
+            self.apply_weather_mode(mode);
+        }
+
+        #[unsafe(method(resetAllSettings:))]
+        fn reset_all_settings(&self, _sender: &NSButton) {
+            let enabled = self.ivars().settings.borrow().enabled;
+            *self.ivars().settings.borrow_mut() = AppSettings {
+                enabled,
+                ..AppSettings::default()
+            }
+            .validate();
+            self.ivars().last_preset.set(1);
+            self.sync_weather_buttons();
+            self.sync_wind_controls();
+            self.sync_slider_controls();
+            self.sync_toggle_controls();
+            self.save_settings();
+            self.apply_settings();
+        }
+
         #[unsafe(method(dismissOnboarding:))]
         fn dismiss_onboarding(&self, _sender: &NSButton) {
             if let Some(window) = self.ivars().onboarding_window.borrow_mut().take() {
@@ -496,6 +542,7 @@ define_class!(
                 apply_weather_preset(&mut settings, mode);
                 *settings = settings.validate();
             }
+            self.ivars().last_preset.set(mode);
             // Presets rewrite the physical sliders and the wind compass.
             self.sync_weather_buttons();
             self.sync_wind_controls();
@@ -804,6 +851,7 @@ impl AppDelegate {
     }
 
     fn apply_weather_mode(&self, mode: u8) {
+        self.ivars().last_preset.set(mode.min(2));
         {
             let mut settings = self.ivars().settings.borrow_mut();
             apply_weather_preset(&mut settings, mode);
@@ -1083,6 +1131,111 @@ impl AppDelegate {
                 isize::from(settings.weather_mode) == tag - 20,
             );
         }
+
+        // Preset summary, custom indicator and reset actions.
+        let badge = NSTextField::labelWithString(
+            &NSString::from_str(tr(language, "ИЗМЕНЁННЫЙ ПРЕСЕТ", "CUSTOM PRESET")),
+            mtm,
+        );
+        badge.setFrame(panel_frame(
+            PANEL_WIDTH - PANEL_PADDING - 116.0,
+            WEATHER_TITLE_TOP - 1.0,
+            116.0,
+            16.0,
+        ));
+        style_label(&badge, color_accent(1.0));
+        badge.setFont(Some(&NSFont::boldSystemFontOfSize(8.0)));
+        badge.setAlignment(NSTextAlignment::Right);
+        badge.setHidden(settings.weather_mode <= 2);
+        content.addSubview(&badge);
+        *self.ivars().weather_badge.borrow_mut() = Some(badge);
+
+        let weather_info = NSTextField::labelWithString(
+            &NSString::from_str(&weather_summary(&settings, language)),
+            mtm,
+        );
+        weather_info.setFrame(panel_frame(
+            PANEL_PADDING,
+            WEATHER_META_TOP,
+            PANEL_CONTENT_WIDTH - 92.0,
+            WEATHER_META_HEIGHT,
+        ));
+        style_label(&weather_info, color_accent(0.90));
+        weather_info.setFont(Some(&NSFont::systemFontOfSize(9.0)));
+        content.addSubview(&weather_info);
+        *self.ivars().weather_info.borrow_mut() = Some(weather_info);
+
+        let reset = NSButton::initWithFrame(
+            NSButton::alloc(mtm),
+            panel_frame(
+                PANEL_WIDTH - PANEL_PADDING - 78.0,
+                WEATHER_META_TOP - 2.0,
+                78.0,
+                22.0,
+            ),
+        );
+        reset.setBordered(false);
+        reset.setButtonType(NSButtonType::MomentaryPushIn);
+        reset.setTitle(&NSString::from_str(tr(language, "Сбросить", "Reset")));
+        reset.setFocusRingType(NSFocusRingType::None);
+        style_small_action(&reset);
+        reset.setToolTip(Some(&NSString::from_str(tr(
+            language,
+            "Вернуть значения выбранного пресета",
+            "Restore the selected preset",
+        ))));
+        unsafe {
+            reset.setTarget(Some(self));
+            reset.setAction(Some(sel!(resetWeatherPreset:)));
+        }
+        content.addSubview(&reset);
+
+        let hint = NSTextField::labelWithString(
+            &NSString::from_str(tr(
+                language,
+                "Ручная правка физики включает режим «Свой».",
+                "Manual physics changes switch to Custom.",
+            )),
+            mtm,
+        );
+        hint.setFrame(panel_frame(
+            PANEL_PADDING,
+            WEATHER_HINT_TOP,
+            PANEL_CONTENT_WIDTH - 140.0,
+            WEATHER_HINT_HEIGHT,
+        ));
+        style_label(&hint, color_accent(0.70));
+        hint.setFont(Some(&NSFont::systemFontOfSize(8.5)));
+        content.addSubview(&hint);
+
+        let defaults = NSButton::initWithFrame(
+            NSButton::alloc(mtm),
+            panel_frame(
+                PANEL_WIDTH - PANEL_PADDING - 110.0,
+                WEATHER_HINT_TOP - 3.0,
+                110.0,
+                20.0,
+            ),
+        );
+        defaults.setBordered(false);
+        defaults.setButtonType(NSButtonType::MomentaryPushIn);
+        defaults.setTitle(&NSString::from_str(tr(
+            language,
+            "По умолчанию",
+            "Defaults",
+        )));
+        defaults.setFocusRingType(NSFocusRingType::None);
+        style_small_action(&defaults);
+        defaults.setToolTip(Some(&NSString::from_str(tr(
+            language,
+            "Сбросить все настройки к значениям по умолчанию",
+            "Reset all settings to their defaults",
+        ))));
+        unsafe {
+            defaults.setTarget(Some(self));
+            defaults.setAction(Some(sel!(resetAllSettings:)));
+        }
+        content.addSubview(&defaults);
 
         // Cursor tools.
         add_section_title(
@@ -2045,6 +2198,17 @@ impl AppDelegate {
         self.ivars().toggle_controls.borrow_mut().push(control);
     }
 
+    fn update_weather_summary(&self) {
+        let settings = *self.ivars().settings.borrow();
+        let language = self.ivars().language.get();
+        if let Some(label) = self.ivars().weather_info.borrow().as_ref() {
+            label.setStringValue(&NSString::from_str(&weather_summary(&settings, language)));
+        }
+        if let Some(badge) = self.ivars().weather_badge.borrow().as_ref() {
+            badge.setHidden(settings.weather_mode <= 2);
+        }
+    }
+
     fn sync_wind_controls(&self) {
         let settings = *self.ivars().settings.borrow();
         let selected = if settings.wind_strength <= 0.0 {
@@ -2406,6 +2570,7 @@ impl AppDelegate {
         if settings.enabled {
             self.refresh_window_surfaces();
         }
+        self.update_weather_summary();
     }
 }
 
@@ -3354,6 +3519,12 @@ fn style_card(card: &SettingsCard, selected: bool) {
     }
 }
 
+fn style_small_action(button: &NSButton) {
+    button.setFont(Some(&NSFont::systemFontOfSize(8.5)));
+    button.setContentTintColor(Some(&color_text(1.0)));
+    style_layer(button, color_surface(0.30), 7.0, 1.0, color_accent(0.22));
+}
+
 fn style_settings_button(button: &NSButton, selected: bool) {
     let tag = button.tag();
     button.setBordered(false);
@@ -3502,6 +3673,30 @@ fn angle_distance(first: f32, second: f32) -> f32 {
     difference.min(TAU - difference)
 }
 
+fn preset_name(mode: u8, language: Language) -> &'static str {
+    match mode {
+        0 => tr(language, "Лёгкий", "Light"),
+        1 => tr(language, "Спокойный", "Calm"),
+        2 => tr(language, "Метель", "Blizzard"),
+        _ => tr(language, "Изменённый пресет", "Custom preset"),
+    }
+}
+
+fn weather_summary(settings: &AppSettings, language: Language) -> String {
+    let name = preset_name(settings.weather_mode, language);
+    let particles = settings.particle_count;
+    let accumulation = (settings.accumulation_speed * 100.0).round() as i32;
+    let wind = (settings.wind_strength / MAX_WIND_STRENGTH * 100.0).round() as i32;
+    match language {
+        Language::Russian => {
+            format!("{name} · {particles} частиц · {accumulation}% накопления · ветер {wind}%")
+        }
+        Language::English => {
+            format!("{name} · {particles} particles · {accumulation}% accumulation · {wind}% wind")
+        }
+    }
+}
+
 fn wind_description(strength: f32, language: Language) -> &'static str {
     match strength {
         value if value < 0.004 => tr(language, "Штиль", "Calm"),
@@ -3602,16 +3797,17 @@ mod tests {
     use super::{
         apply_weather_preset, direction_tag, dock_surfaces_for_display, is_fullscreen_window,
         language_from_code, panel_frame, slider_label_value, toggle_tooltip, tool_hint_text,
-        top_frame, window_snow_edge_margin_points, DisplaySimulationSpace, Language, ABOUT_HEIGHT,
-        ABOUT_TOP_COLLAPSED, ABOUT_TOP_EXPANDED, ADDITIONAL_HEIGHT, ADDITIONAL_TOP, CLEAR_HEIGHT,
-        CLEAR_TOP, COMPASS_CARD_HEIGHT, COMPASS_CARD_TOP, COMPASS_CENTER_X, COMPASS_RADIUS,
-        COMPASS_STEP_X, COMPASS_STEP_Y, HEADER_HEIGHT, HEADER_TOP, PANEL_HEIGHT_COLLAPSED,
-        PANEL_HEIGHT_EXPANDED, PANEL_PADDING, PANEL_WIDTH, PHYSICS_SECOND_ROW_TOP,
-        PHYSICS_TOGGLE_TOP, PHYSICS_TOP, SECTION_TITLE_HEIGHT, SLIDER_ROW_HEIGHT, TOGGLES_TOP,
-        TOGGLE_HEIGHT, TOOL_HEIGHT, TOOL_HINT_HEIGHT, TOOL_HINT_TOP, TOOL_TITLE_TOP, TOOL_TOP,
-        WEATHER_HEIGHT, WEATHER_TITLE_TOP, WEATHER_TOP, WIND_CARD_LEFT_WIDTH,
-        WIND_SLIDER_FIRST_TOP, WIND_SLIDER_SECOND_TOP, WIND_SLIDER_WIDTH, WIND_SLIDER_X,
-        WIND_TITLE_TOP,
+        top_frame, weather_summary, window_snow_edge_margin_points, DisplaySimulationSpace,
+        Language, ABOUT_HEIGHT, ABOUT_TOP_COLLAPSED, ABOUT_TOP_EXPANDED, ADDITIONAL_HEIGHT,
+        ADDITIONAL_TOP, CLEAR_HEIGHT, CLEAR_TOP, COMPASS_CARD_HEIGHT, COMPASS_CARD_TOP,
+        COMPASS_CENTER_X, COMPASS_RADIUS, COMPASS_STEP_X, COMPASS_STEP_Y, HEADER_HEIGHT,
+        HEADER_TOP, PANEL_HEIGHT_COLLAPSED, PANEL_HEIGHT_EXPANDED, PANEL_PADDING, PANEL_WIDTH,
+        PHYSICS_SECOND_ROW_TOP, PHYSICS_TOGGLE_TOP, PHYSICS_TOP, SECTION_TITLE_HEIGHT,
+        SLIDER_ROW_HEIGHT, TOGGLES_TOP, TOGGLE_HEIGHT, TOOL_HEIGHT, TOOL_HINT_HEIGHT,
+        TOOL_HINT_TOP, TOOL_TITLE_TOP, TOOL_TOP, WEATHER_HEIGHT, WEATHER_HINT_HEIGHT,
+        WEATHER_HINT_TOP, WEATHER_META_HEIGHT, WEATHER_META_TOP, WEATHER_TITLE_TOP, WEATHER_TOP,
+        WIND_CARD_LEFT_WIDTH, WIND_SLIDER_FIRST_TOP, WIND_SLIDER_SECOND_TOP, WIND_SLIDER_WIDTH,
+        WIND_SLIDER_X, WIND_TITLE_TOP,
     };
     use crate::settings::AppSettings;
     use crate::windows::VisibleWindow;
@@ -3759,11 +3955,26 @@ mod tests {
         }
     }
     #[test]
+    fn weather_summary_shows_current_values_and_custom_state() {
+        let mut settings = AppSettings::default();
+        let calm = weather_summary(&settings, Language::Russian);
+        assert!(calm.contains("Спокойный"));
+        assert!(calm.contains("1500"));
+        assert!(calm.contains("50% накопления"));
+        settings.weather_mode = 3;
+        let custom = weather_summary(&settings, Language::Russian);
+        assert!(custom.starts_with("Изменённый пресет"));
+        assert!(weather_summary(&settings, Language::English).starts_with("Custom preset"));
+    }
+
+    #[test]
     fn settings_panel_rows_are_stacked_without_overlap_and_fit_the_panel() {
         let rows = [
             (HEADER_TOP, HEADER_HEIGHT),
             (WEATHER_TITLE_TOP, SECTION_TITLE_HEIGHT),
             (WEATHER_TOP, WEATHER_HEIGHT),
+            (WEATHER_META_TOP, WEATHER_META_HEIGHT),
+            (WEATHER_HINT_TOP, WEATHER_HINT_HEIGHT),
             (TOOL_TITLE_TOP, SECTION_TITLE_HEIGHT),
             (TOOL_TOP, TOOL_HEIGHT),
             (TOOL_HINT_TOP, TOOL_HINT_HEIGHT),

@@ -141,7 +141,7 @@ carrot nose and buttons.
 
 | Area | Details |
 | --- | --- |
-| Weather | Light, Calm and Blizzard presets, or custom intensity, fall speed, accumulation and particle count |
+| Weather | Light, Calm and Blizzard presets, or custom intensity, fall speed, accumulation and particle count; live preset values and a Custom indicator |
 | Wind | Direction compass, strength and gust controls; Blizzard alternates left and right |
 | Windows | Snow on exposed top edges, proportional margins, window and Dock occlusion |
 | Dock | Snow along the Dock's top edge and beside bottom, left and right Docks |
@@ -149,7 +149,7 @@ carrot nose and buttons.
 | Tools | Mitten for sculpting and snowballs, shovel for removing snow |
 | First launch | A short guide to the menu-bar icon, settings and the Option snowball gesture |
 | Menu | Right-click the menu-bar icon for settings, pause, weather presets, launch at login and quit |
-| Settings | Compact, no-scroll panel; physics controls live under **Дополнительно** |
+| Settings | Compact, no-scroll panel; physics controls live under **Дополнительно**; reset to the selected preset or to defaults |
 | Appearance | Native dark panel in the `#091540`, `#3D518C`, `#1B2CC1`, `#7692FF` and `#ABD2FA` palette |
 
 The simulation allocates its particle pool once, uploads geometry through
