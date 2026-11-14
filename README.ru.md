@@ -81,6 +81,15 @@ NOTARY_PROFILE="your-notarytool-keychain-profile" \
 Профиль для нотаризации создаётся через `xcrun notarytool store-credentials`.
 Пароли Apple храни только в Keychain.
 
+DMG с окном «перетащи в Applications» и зимним фоном:
+
+```sh
+SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+./scripts/package-dmg.sh
+```
+
+Без `SIGNING_IDENTITY` DMG подписывается ad-hoc.
+
 ## Управление
 
 | Действие | Как |

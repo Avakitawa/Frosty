@@ -82,6 +82,14 @@ NOTARY_PROFILE="your-notarytool-keychain-profile" \
 Create the notarization profile with `xcrun notarytool store-credentials`; keep
 Apple credentials in Keychain, never in the repository.
 
+To also build the drag-to-Applications DMG with the winter background:
+
+```sh
+SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" ./scripts/package-dmg.sh
+```
+
+Without `SIGNING_IDENTITY`, the DMG is ad-hoc signed.
+
 ## Controls
 
 | Action | How |
